@@ -1,9 +1,9 @@
 """QWeave research code for quantum routing experiments."""
 
 from .circuits import BellCircuit, build_bell_circuit, build_ideal_bell_circuit
-from .processors import PROCESSORS, Processor, get_processor
+from .processors import PROCESSOR_CONFIGS, PROCESSORS, Processor, get_processor
 from .verification import bell_fidelity
-from .noise import BitFlipNoise
+from .backends import BackendSnapshot, FakeBackendTestbed
 from .measurements import (
     BellMeasurementResult, build_bell_measurement_circuits,
     measured_bell_fidelity, run_bell_measurements,
@@ -11,12 +11,14 @@ from .measurements import (
 
 __all__ = [
     "BellCircuit",
-    "BitFlipNoise",
+    "BackendSnapshot",
+    "FakeBackendTestbed",
     "BellMeasurementResult",
     "build_bell_measurement_circuits",
     "measured_bell_fidelity",
     "run_bell_measurements",
     "PROCESSORS",
+    "PROCESSOR_CONFIGS",
     "Processor",
     "bell_fidelity",
     "build_bell_circuit",

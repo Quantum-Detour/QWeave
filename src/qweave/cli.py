@@ -1,12 +1,17 @@
 """Inspect and compare ideal and noisy Bell baseline experiments."""
 
 import argparse
+from dataclasses import asdict
+import json
 from math import isclose
+from pathlib import Path
 
+from qiskit import qasm3
+
+from .backends import FakeBackendTestbed
 from .circuits import build_bell_circuit
 from .measurements import BellMeasurementResult, run_bell_measurements
-from .noise import BitFlipNoise
-from .processors import PROCESSORS
+from .processors import PROCESSOR_CONFIGS
 from .verification import BELL_FIDELITY_TOLERANCE, bell_fidelity
 
 
@@ -21,40 +26,56 @@ def _print_measurements(label: str, result: BellMeasurementResult) -> None:
     print(f"    accepted: {shots}/{shots} (100%); discarded: 0; unprotected baseline")
 
 
+def _result_record(result: BellMeasurementResult) -> dict:
+    return {
+        "counts": result.counts, "correlations": result.correlations,
+        "fidelity": result.fidelity, "fidelity_interval": result.fidelity_interval,
+        "interval_method": "95% simultaneous Hoeffding bounds",
+        "shots_by_basis": result.shots_by_basis, "seed": result.seed,
+        "accepted_shots": sum(result.shots_by_basis.values()), "discarded_shots": 0,
+        "testbed": asdict(result.testbed) if result.testbed else None,
+        "noise": asdict(result.noise) if result.noise else None,
+        "circuits": {
+            basis: {"qasm3": qasm3.dumps(circuit), "gates": dict(circuit.count_ops()), "depth": circuit.depth()}
+            for basis, circuit in result.circuits.items()
+        },
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify and compare Bell baselines")
-    parser.add_argument("--processor", choices=("all", *PROCESSORS), default="all")
+    parser.add_argument("--processor", choices=("all", *PROCESSOR_CONFIGS), default="all")
     parser.add_argument("--show-circuit", action="store_true", help="Draw executed circuits after SWAP decomposition")
     parser.add_argument("--shots", type=int, default=3072, help="Total shots per processor PER noise setting, across XX/YY/ZZ")
     parser.add_argument("--seed", type=int, default=42, help="Simulator seed (default: 42)")
-    parser.add_argument("--noise", choices=("none", "bit-flip"), default="none", help="Compare a noisy run with the noiseless baseline")
-    parser.add_argument("--p1", type=float, help="X probability after each one-qubit gate (default: 0.001)")
-    parser.add_argument("--p2", type=float, help="Independent X probability per participant after each CX (default: 0.01)")
-    parser.add_argument("--readout-error", type=float, help="Symmetric error per measured bit (default: 0.01)")
+    parser.add_argument("--noise", choices=("none", "backend"), default="none", help="backend uses FakeSherbrooke for IBM and seeded GenericBackendV2 for custom graphs")
+    parser.add_argument("--backend-seed", type=int, default=1234, help="Seed for synthetic backend properties, independent of shot sampling (default: 1234)")
+    parser.add_argument("--report", type=Path, help="Save configuration, snapshot identity, counts, metrics, and executed QASM circuits as JSON")
     args = parser.parse_args()
     if args.shots < 3:
         parser.error("--shots must be at least 3")
     if not 0 <= args.seed <= 2**32 - 3:
         parser.error("--seed must be between 0 and 2**32 - 3")
-    noise = None
-    if args.noise == "none" and any(p is not None for p in (args.p1, args.p2, args.readout_error)):
-        parser.error("Noise probabilities require --noise bit-flip")
-    if args.noise == "bit-flip":
-        try:
-            noise = BitFlipNoise(
-                single_qubit=0.001 if args.p1 is None else args.p1,
-                two_qubit=0.01 if args.p2 is None else args.p2,
-                readout=0.01 if args.readout_error is None else args.readout_error,
-            )
-        except ValueError as exc:
-            parser.error(str(exc))
-        print(f"Synthetic independent bit-flip noise: p1={noise.single_qubit}, p2={noise.two_qubit} per CX participant, readout={noise.readout}")
-
-    names = PROCESSORS if args.processor == "all" else (args.processor,)
+    if args.backend_seed < 0:
+        parser.error("--backend-seed must be nonnegative")
+    names = PROCESSOR_CONFIGS if args.processor == "all" else (args.processor,)
+    records = []
     failed = False
     for name in names:
-        built = build_bell_circuit(name, measure=False)
+        testbed = FakeBackendTestbed.for_processor(
+            name, backend_seed=args.backend_seed, compiler_seed=args.seed,
+        )
+        print(f"Test bed: {testbed.snapshot.backend_class}; source: {testbed.snapshot.noise_source}; {testbed.snapshot.num_qubits} sites")
+        if testbed.snapshot.backend_seed is not None:
+            print(f"  synthetic properties seed: {testbed.snapshot.backend_seed}")
+        else:
+            print(f"  calibration: {testbed.snapshot.calibration_time}")
+        print(f"  SHA256: {testbed.snapshot.snapshot_sha256}")
+        print("  native compilation: fixed physical placement, optimization level 0; no rerouting or mitigation")
+        processor = testbed.processor(PROCESSOR_CONFIGS[name].output_ports, name=name)
+        built = build_bell_circuit(processor, measure=False)
         print(f"{name}: {built.processor.num_qubits} sites, ports {built.processor.output_ports}")
+        print(f"  graph source: {PROCESSOR_CONFIGS[name].provenance}")
         print(f"  route: {' -> '.join(map(str, built.route))}")
         print(f"  SWAPs before decomposition: {built.circuit.count_ops().get('swap', 0)}")
         try:
@@ -66,21 +87,39 @@ def main() -> None:
         passed = isclose(fidelity, 1.0, abs_tol=BELL_FIDELITY_TOLERANCE, rel_tol=0.0)
         failed |= not passed
         print(f"  ideal Bell fidelity: {fidelity:.12f} — {'PASS' if passed else 'FAIL'}")
+        native_fidelity = bell_fidelity(testbed.compile(built.circuit), built.processor.output_ports)
+        native_passed = isclose(native_fidelity, 1.0, abs_tol=BELL_FIDELITY_TOLERANCE, rel_tol=0)
+        failed |= not native_passed
+        print(f"  native circuit ideal fidelity: {native_fidelity:.12f} — {'PASS' if native_passed else 'FAIL'}")
 
         result = run_bell_measurements(
-            built.circuit, built.processor.output_ports, shots=args.shots, seed=args.seed
+            built.circuit, built.processor.output_ports, shots=args.shots, seed=args.seed, testbed=testbed,
         )
         _print_measurements("noiseless measurements", result)
-        if noise is not None:
+        noisy = None
+        if args.noise == "backend":
             noisy = run_bell_measurements(
                 built.circuit, built.processor.output_ports,
-                shots=args.shots, seed=args.seed, noise=noise,
+                shots=args.shots, seed=args.seed,
+                testbed=testbed, backend_noise=True,
             )
             _print_measurements("noisy measurements", noisy)
             print(f"  measured fidelity change (noisy - noiseless): {noisy.fidelity - result.fidelity:+.6f}")
         for basis, measured in result.circuits.items():
-            print(f"  {basis} synthetic basis gates: {dict(measured.count_ops())}; depth: {measured.depth()}")
+            print(f"  {basis} backend native gates: {dict(measured.count_ops())}; depth: {measured.depth()}")
             if args.show_circuit:
-                print(measured.draw(output="text", fold=100))
+                print(measured.draw(output="text", fold=100, idle_wires=False))
+        if args.report:
+            records.append({
+                "algorithm": "A", "processor": name, "num_qubits": built.processor.num_qubits,
+                "ports": built.processor.output_ports, "route": built.route,
+                "graph_provenance": PROCESSOR_CONFIGS[name].provenance,
+                "edges": built.processor.edges,
+                "ideal_fidelity": fidelity, "native_ideal_fidelity": native_fidelity,
+                "noiseless": _result_record(result), "noisy": _result_record(noisy) if noisy else None,
+            })
+    if args.report:
+        args.report.write_text(json.dumps({"schema_version": 1, "runs": records}, indent=2) + "\n")
+        print(f"Saved report: {args.report}")
     if failed:
         raise SystemExit(1)

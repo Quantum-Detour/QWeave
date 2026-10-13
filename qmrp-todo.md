@@ -2,7 +2,7 @@
 
 Compare four quantum routing methods across three processor models, then explore their results through a Quantum Packet Tracer and research dashboard. Detailed explanations are in [qmrp-project-overview.md](qmrp-project-overview.md).
 
-**Current progress:** Noiseless and synthetic bit-flip-noise Bell baselines run on all three provisional graphs, with shot-based fidelity and conservative 95% sampling intervals. Noiseless fidelity is 1.0; all 24 tests passed. Official graph/port confirmation, backend-native compilation, and a verified hyperbolic tiling remain pending.
+**Current progress:** The CLI uses backend-native compilation for both noiseless and noisy Bell baselines. Five-node and radial models use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. This revision has not been test-run. Official graph/port confirmation, other routing methods, and a verified hyperbolic tiling remain pending.
 
 ## 1. Topologies and Bell baseline
 
@@ -11,6 +11,7 @@ Compare four quantum routing methods across three processor models, then explore
 - [x] Build the shortest-path Bell circuit and verify ideal output fidelity with Qiskit on all three provisional graphs.
 - [x] Check every compiled two-qubit interaction against graph edges in tests under the current synthetic bidirectional-CX convention.
 - [ ] Validate interactions against organizer-confirmed graphs and native gate directions.
+- [x] Validate compiled IBM baseline operations and fixed placement against FakeSherbrooke's native target; verify ideal fidelity after native translation.
 - [x] Add XX, YY, and ZZ measurement circuits and calculate Bell fidelity: F = (1 + ⟨XX⟩ − ⟨YY⟩ + ⟨ZZ⟩) / 4.
 - [x] Add conservative 95% sampling intervals to measured Bell fidelity using simultaneous Hoeffding bounds.
 
@@ -27,12 +28,15 @@ Compare four quantum routing methods across three processor models, then explore
 
 - [ ] Complete the nine required benchmark cases: ideal baseline, noisy baseline, and noisy + protection for each of the five-node, contemporary IBM-style, and hyperbolic-inspired processor models, using the common processor definitions, fixed output ports, and noise assumptions.
 - [ ] Run all four methods on all three models with matched ports, placement constraints, noise assumptions, and attempted-shot budgets; retain a separate ideal reference.
-- [x] Compare noiseless and noisy shortest-path Bell baselines on all three provisional graphs with matched shots and configurable independent bit-flip/readout errors.
-- [x] Decompose SWAPs into three CX gates, apply synthetic gate noise including basis rotations, and report executed gate costs and unprotected yield.
-- [ ] Include noise on native gates, encoding/decoding, and readout. Start with bit flips, then test depolarizing noise and relaxation.
+- [x] Compare noiseless and noisy shortest-path Bell baselines on all three provisional graphs with matched shots and backend-derived gate/readout errors.
+- [x] Translate SWAPs and measurement rotations to backend-native gates, apply backend-derived noise, and report executed gate costs and unprotected yield.
+- [x] Add a shared offline FakeSherbrooke test bed with calibration-derived gate/readout noise, directed gate error/duration data, and identical native circuits for clean/noisy comparisons.
+- [x] Add seeded GenericBackendV2 test beds for the custom graph inputs and derive processor connectivity from the selected backends.
+- [ ] Extend backend-derived native gate/readout noise to encoding and decoding; study depolarizing noise and relaxation across all routing methods.
 - [ ] Report fidelity, depth, native two-qubit gates, SWAPs, physical qubits, runtime, accepted/discarded shots, and protection coverage.
 - [ ] Sweep noise and port distance to find where QMRP helps or hurts; compare with all baselines and encoded execution without postselection.
 - [ ] Save configurations, seeds, versions, counts, and traces. Include a separate feasible protection experiment if QMRP cannot protect a required topology.
+- [x] Export baseline JSON reports with seeds, counts, intervals, executed QASM, and fake-backend snapshot hash/version/settings; full routing traces remain pending.
 
 ## 4. Reusable circuit support
 

@@ -1,11 +1,12 @@
-"""Provisional, topology-only processor definitions.
+"""Processor connectivity derived from configured offline backends.
 
-Edges describe physical adjacency. For this first circuit, CX is assumed to
-work in either direction on each edge; native directions and costs belong to a
-later, explicitly configured experiment suite.
+Custom graph inputs remain provisional; backend generation supplies native
+operations and noise properties, not a verified challenge geometry.
 """
 
+from collections.abc import Mapping, Iterator
 from dataclasses import dataclass
+from functools import lru_cache
 
 import networkx as nx
 from qiskit.transpiler import CouplingMap
@@ -49,42 +50,55 @@ def _radial_edges() -> tuple[tuple[int, int], ...]:
     return tuple(edges)
 
 
-PROCESSORS: dict[str, Processor] = {
-    "five_node": Processor(
-        name="five_node",
-        description="Five-site branching reference",
-        num_qubits=5,
+@dataclass(frozen=True)
+class ProcessorConfig:
+    backend_kind: str
+    output_ports: tuple[int, int]
+    provenance: str
+    num_qubits: int | None = None
+    edges: tuple[tuple[int, int], ...] = ()
+
+
+PROCESSOR_CONFIGS = {
+    "five_node": ProcessorConfig(
+        backend_kind="generic", output_ports=(0, 4), num_qubits=5,
         edges=((0, 1), (1, 2), (1, 3), (3, 4)),
-        output_ports=(0, 4),
         provenance="Provisional branching-tree interpretation of the challenge overview.",
     ),
-    "ibm_heavy_hex": Processor(
-        name="ibm_heavy_hex",
-        description="16-site IBM-style heavy-hex snapshot",
-        num_qubits=16,
-        edges=(
-            (0, 1), (1, 2), (1, 4), (2, 3), (3, 5), (4, 7),
-            (5, 8), (6, 7), (7, 10), (8, 9), (8, 11), (10, 12),
-            (11, 14), (12, 13), (12, 15), (13, 14),
-        ),
-        output_ports=(0, 15),
-        provenance="Coupling edges copied from qiskit-ibm-runtime 0.50.0 FakeGuadalupeV2; topology only.",
+    "ibm_heavy_hex": ProcessorConfig(
+        backend_kind="sherbrooke", output_ports=(0, 15),
+        provenance="FakeSherbrooke from the supplied transpilation notebook; ports remain provisional.",
     ),
-    "hyperbolic_inspired": Processor(
-        name="hyperbolic_inspired",
-        description="22-site radial expansion scaffold",
-        num_qubits=22,
+    "hyperbolic_inspired": ProcessorConfig(
+        backend_kind="generic", output_ports=(8, 18), num_qubits=22,
         edges=_radial_edges(),
-        output_ports=(8, 18),
         provenance="Provisional radial graph with 1+7+14 sites; not a verified hyperbolic tiling.",
     ),
 }
 
 
+@lru_cache(maxsize=None)
 def get_processor(name: str) -> Processor:
-    """Look up one of the three provisional processor models."""
-    try:
-        return PROCESSORS[name]
-    except KeyError as exc:
-        choices = ", ".join(PROCESSORS)
-        raise ValueError(f"Unknown processor {name!r}; choose one of: {choices}") from exc
+    """Derive a default-seed processor from its configured backend."""
+    from .backends import FakeBackendTestbed
+
+    testbed = FakeBackendTestbed.for_processor(name)
+    return testbed.processor(PROCESSOR_CONFIGS[name].output_ports, name=name)
+
+
+class _ProcessorCatalog(Mapping[str, Processor]):
+    """Preserve catalog lookup while constructing backend-derived models lazily."""
+
+    def __getitem__(self, name: str) -> Processor:
+        if name not in PROCESSOR_CONFIGS:
+            raise KeyError(name)
+        return get_processor(name)
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(PROCESSOR_CONFIGS)
+
+    def __len__(self) -> int:
+        return len(PROCESSOR_CONFIGS)
+
+
+PROCESSORS: Mapping[str, Processor] = _ProcessorCatalog()

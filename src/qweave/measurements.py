@@ -8,7 +8,8 @@ from qiskit import ClassicalRegister, QuantumCircuit
 from qiskit_aer import AerSimulator
 
 from .verification import _validate_bell_input
-from .noise import BitFlipNoise, compile_synthetic_circuit
+from .compilation import compile_ideal_circuit
+from .backends import BackendSnapshot, FakeBackendTestbed
 
 BASES = ("XX", "YY", "ZZ")
 
@@ -22,7 +23,8 @@ class BellMeasurementResult:
     seed: int
     fidelity_interval: tuple[float, float]
     circuits: dict[str, QuantumCircuit]
-    noise: BitFlipNoise | None
+    noise: BackendSnapshot | None
+    testbed: BackendSnapshot | None = None
 
 
 def build_bell_measurement_circuits(
@@ -99,7 +101,7 @@ def bell_fidelity_interval(counts: Mapping[str, Mapping[str, int]]) -> tuple[flo
 
 def run_bell_measurements(
     circuit: QuantumCircuit, ports: tuple[int, int], *, shots: int = 3072, seed: int = 42,
-    noise: BitFlipNoise | None = None,
+    testbed: FakeBackendTestbed | None = None, backend_noise: bool = False,
 ) -> BellMeasurementResult:
     """Run Aer experiments with optional noise and a total shot budget across bases.
 
@@ -110,12 +112,15 @@ def run_bell_measurements(
         raise ValueError("shots must be an integer total budget of at least 3")
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 3:
         raise ValueError("seed must be an integer between 0 and 2**32 - 3")
+    if backend_noise and testbed is None:
+        raise ValueError("backend_noise requires a fake backend test bed")
     circuits = {
-        basis: compile_synthetic_circuit(measured)
+        basis: testbed.compile(measured) if testbed else compile_ideal_circuit(measured)
         for basis, measured in build_bell_measurement_circuits(circuit, ports).items()
     }
     simulator = AerSimulator(
-        method="matrix_product_state", noise_model=noise.to_aer() if noise else None
+        method="matrix_product_state",
+        noise_model=testbed.noise_model if backend_noise else None,
     )
     counts = {}
     shots_by_basis = {}
@@ -128,5 +133,7 @@ def run_bell_measurements(
     return BellMeasurementResult(
         counts=counts, correlations=bell_correlations(counts),
         fidelity=measured_bell_fidelity(counts), shots_by_basis=shots_by_basis, seed=seed,
-        fidelity_interval=bell_fidelity_interval(counts), circuits=circuits, noise=noise,
+        fidelity_interval=bell_fidelity_interval(counts), circuits=circuits,
+        noise=testbed.snapshot if backend_noise else None,
+        testbed=testbed.snapshot if testbed else None,
     )

@@ -48,6 +48,7 @@ class BellVerificationTests(unittest.TestCase):
 
     def test_resource_limit_precedes_simulation(self):
         circuit = QuantumCircuit(MAX_STATEVECTOR_QUBITS + 1)
+        circuit.h(range(circuit.num_qubits))
         with patch("qweave.verification.Statevector.from_instruction") as simulate:
             with self.assertRaisesRegex(ValueError, "resource limit"):
                 bell_fidelity(circuit, (0, 1))
