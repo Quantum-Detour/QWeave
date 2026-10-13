@@ -7,6 +7,9 @@ operations and noise properties, not a verified challenge geometry.
 from collections.abc import Mapping, Iterator
 from dataclasses import dataclass
 from functools import lru_cache
+from hashlib import sha256
+from importlib.resources import files
+import json
 
 import networkx as nx
 from qiskit.transpiler import CouplingMap
@@ -33,23 +36,6 @@ class Processor:
         return CouplingMap(couplinglist=directed_edges)
 
 
-def _radial_edges() -> tuple[tuple[int, int], ...]:
-    """A provisional three-layer radial graph, not a regular tiling."""
-    edges: list[tuple[int, int]] = []
-    for index in range(7):
-        inner = index + 1
-        edges.extend(
-            (
-                (0, inner),
-                (inner, (index + 1) % 7 + 1),
-                (inner, 8 + 2 * index),
-                (inner, 9 + 2 * index),
-            )
-        )
-    edges.extend((outer, 8 + (outer - 7) % 14) for outer in range(8, 22))
-    return tuple(edges)
-
-
 @dataclass(frozen=True)
 class ProcessorConfig:
     backend_kind: str
@@ -57,6 +43,28 @@ class ProcessorConfig:
     provenance: str
     num_qubits: int | None = None
     edges: tuple[tuple[int, int], ...] = ()
+    topology_metadata: dict | None = None
+
+
+def _hyperbolic_config() -> ProcessorConfig:
+    """Load the frozen lattice; never regenerate or select ports during a run."""
+    raw = files("qweave").joinpath("data/hyperbolic_7_3_cells.json").read_bytes()
+    artifact = json.loads(raw)
+    parameters = artifact["parameters"]
+    metadata = {k: v for k, v in artifact.items() if k not in {"edges", "poincare_cell_centers"}}
+    metadata["artifact_sha256"] = sha256(raw).hexdigest()
+    return ProcessorConfig(
+        backend_kind="generic",
+        output_ports=tuple(artifact["output_ports"]), num_qubits=artifact["num_qubits"],
+        edges=tuple(tuple(edge) for edge in artifact["edges"]),
+        provenance=(
+            f"HYPERTILING {artifact['generator_version']}; "
+            f"{{{parameters['p']},{parameters['q']}}}, {parameters['kernel']}, n={parameters['n']}; "
+            f"cell-adjacency graph, interior degree {artifact['interior_degree']}; frozen graph and ports; "
+            "provisional project choice, organizer confirmation pending."
+        ),
+        topology_metadata=metadata,
+    )
 
 
 PROCESSOR_CONFIGS = {
@@ -69,11 +77,7 @@ PROCESSOR_CONFIGS = {
         backend_kind="sherbrooke", output_ports=(0, 15),
         provenance="FakeSherbrooke from the supplied transpilation notebook; ports remain provisional.",
     ),
-    "hyperbolic_inspired": ProcessorConfig(
-        backend_kind="generic", output_ports=(8, 18), num_qubits=22,
-        edges=_radial_edges(),
-        provenance="Provisional radial graph with 1+7+14 sites; not a verified hyperbolic tiling.",
-    ),
+    "hyperbolic_inspired": _hyperbolic_config(),
 }
 
 

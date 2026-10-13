@@ -2,11 +2,12 @@
 
 Compare four quantum routing methods across three processor models, then explore their results through a Quantum Packet Tracer and research dashboard. Detailed explanations are in [qmrp-project-overview.md](qmrp-project-overview.md).
 
-**Current progress:** Shortest path and SABRE now share logical Bell preparation, fixed initial placement, output restoration, native compilation, measurements, noise, and reporting. Five-node and radial models use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. This revision has not been test-run. Official graph/port confirmation, noise-aware/QMRP routing, and a verified hyperbolic tiling remain pending.
+**Current progress:** Shortest path and SABRE now share logical Bell preparation, fixed initial placement, output restoration, native compilation, measurements, noise, and reporting. Five-node and the frozen 85-cell HYPERTILING {7,3} model use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. This revision has not been test-run. The radial placeholder has been replaced with a generated cell-adjacency lattice (interior degree 7), frozen ports (5, 31), generator metadata and a graph fingerprint. Organizer confirmation of graph/ports and noise-aware/QMRP routing remain pending.
 
 ## 1. Topologies and Bell baseline
 
 - [ ] Confirm the five-node, IBM heavy-hex, and hyperbolic graph definitions, fixed output ports, and allowed gate directions.
+- [x] Replace the radial placeholder with a frozen HYPERTILING {7,3} cell-adjacency graph; record generator/version/parameters, edges, ports and SHA256.
 - [ ] Plot each complete hardware graph with its selected route beside the circuit diagram.
 - [x] Build the shortest-path Bell circuit and verify ideal output fidelity with Qiskit on all three provisional graphs.
 - [x] Check every compiled two-qubit interaction against graph edges in tests under the current synthetic bidirectional-CX convention.

@@ -740,6 +740,24 @@ wheels = [
 ]
 
 [[package]]
+name = "hypertiling"
+version = "1.5.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ipython" },
+    { name = "matplotlib" },
+    { name = "networkx" },
+    { name = "numpy" },
+    { name = "scipy" },
+    { name = "setuptools" },
+    { name = "sortedcontainers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7e/a5/6a16a738d98f6481315d123ceaa0da7c91263958ce2a5a8c491d9369c04c/hypertiling-1.5.1.tar.gz", hash = "sha256:e79dd931f9030f153333bbf2930e99478cf75b2c4b1fad7bf2e558aed96b57c2", size = 97136, upload-time = "2026-03-05T00:38:17.933Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7b/53/7f2d1220fce2bd1b9cae1de6e21cbf784bb58864aa949df38980ebc40c13/hypertiling-1.5.1-py3-none-any.whl", hash = "sha256:98579777081bb876347c7ec6ef075cb49ae78353007fdfd31dfb9e225043e33b", size = 118813, upload-time = "2026-03-05T00:38:15.944Z" },
+]
+
+[[package]]
 name = "ibm-cloud-sdk-core"
 version = "3.28.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2469,6 +2487,7 @@ name = "qweave"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "hypertiling" },
     { name = "jupyter" },
     { name = "matplotlib" },
     { name = "networkx" },
@@ -2479,6 +2498,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "hypertiling", specifier = ">=1.5.1" },
     { name = "jupyter", specifier = ">=1.1.1" },
     { name = "matplotlib", specifier = ">=3.11.2" },
     { name = "networkx", specifier = ">=3.7" },
@@ -2797,12 +2817,30 @@ wheels = [
 ]
 
 [[package]]
+name = "setuptools"
+version = "84.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/44/f5da03a8ef95d369145c5bb53050e7877c9f3d312e128605fd9504829143/setuptools-84.0.0.tar.gz", hash = "sha256:f4695c21257f0d9b537ec2692c941d02ee143b7cc1276941349a546573b2ef73", size = 1168449, upload-time = "2026-08-08T18:27:58.365Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/95/9c/c510029fc6ef33a6275cd2c5d3cecd6613dfd6aa401d57c54f1c18852ccf/setuptools-84.0.0-py3-none-any.whl", hash = "sha256:51a52592b3b99e102b609654876bd65f19f999935166d1352678931132b0c670", size = 818216, upload-time = "2026-08-08T18:27:56.719Z" },
+]
+
+[[package]]
 name = "six"
 version = "1.17.0"
 source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/94/e7/b2c673351809dca68a0e064b6af791aa332cf192da575fd474ed7d6f16a2/six-1.17.0.tar.gz", hash = "sha256:ff70335d468e7eb6ec65b95b99d3a2836546063f63acc5171de367e834932a81", size = 34031, upload-time = "2024-12-04T17:35:28.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl", hash = "sha256:4721f391ed90541fddacab5acf947aa0d3dc7d27b2e1e8eda2be8970586c3274", size = 11050, upload-time = "2024-12-04T17:35:26.475Z" },
+]
+
+[[package]]
+name = "sortedcontainers"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/c4/ba2f8066cceb6f23394729afe52f3bf7adec04bf9ed2c820b39e19299111/sortedcontainers-2.4.0.tar.gz", hash = "sha256:25caa5a06cc30b6b83d11423433f65d1f9d76c4c6a0c90e3379eaa43b9bfdb88", size = 30594, upload-time = "2021-05-16T22:03:42.897Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/46/9cb0e58b2deb7f82b84065f37f3bffeb12413f947f9388e4cac22c4621ce/sortedcontainers-2.4.0-py2.py3-none-any.whl", hash = "sha256:a163dcaede0f1c021485e957a39245190e74249897e2ae4b2aa38595db237ee0", size = 29575, upload-time = "2021-05-16T22:03:41.177Z" },
 ]
 
 [[package]]

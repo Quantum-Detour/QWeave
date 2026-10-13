@@ -17,10 +17,11 @@ terminal measurements or return an unmeasured circuit for analysis.
 | --- | ---: | --- | --- |
 | `five_node` | 5 | 0, 4 | Branching-tree interpretation of the challenge overview |
 | `ibm_heavy_hex` | 127 | 0, 15 | `FakeSherbrooke`, matching the supplied transpilation notebook |
-| `hyperbolic_inspired` | 22 | 8, 18 | Three-layer radial expansion scaffold (1 + 7 + 14 vertices) |
+| `hyperbolic_inspired` | 85 | 5, 31 | Frozen HYPERTILING `{7,3}` cell-adjacency graph, SRS kernel, four layers |
 
 These graph and port choices are **provisional** until the organizer definitions
-are available. The radial graph is not yet a verified hyperbolic tiling. This
+are confirmed. The hyperbolic model now comes from a regular tiling; its
+parameters and cell-based qubit placement are our provisional choices. The
 custom backends use bidirectional CX on every configured graph edge. The IBM
 backend supplies its own native gate directions and calibrations. Both noiseless
 and noisy CLI runs compile to the selected backend's native target. The builder
@@ -89,7 +90,7 @@ drawn as additional gates.
 | --- | --- | --- |
 | `five_node` | `GenericBackendV2` on the current five-node graph | Seeded synthetic properties |
 | `ibm_heavy_hex` | `FakeSherbrooke` from the supplied notebook | Packaged calibration snapshot |
-| `hyperbolic_inspired` | `GenericBackendV2` on the current radial graph | Seeded synthetic properties |
+| `hyperbolic_inspired` | `GenericBackendV2` on the frozen HYPERTILING graph | Seeded synthetic properties |
 
 ```sh
 uv run qweave --processor five_node --show-circuit --noise backend
@@ -115,8 +116,8 @@ Each model's clean and noisy runs use the same native circuit and shot budget.
 This combined suite has different noise properties and native gate sets across
 models. Differences in results therefore cannot be attributed to topology
 alone. Generic
-backends also do not resolve the pending organizer graph/port definitions or
-replace the radial placeholder with a verified hyperbolic lattice.
+backends supply noise properties; HYPERTILING supplies the third model's geometry.
+Organizer confirmation of the chosen graph parameters and ports remains pending.
 
 ## Sherbrooke snapshot from the supplied notebooks
 
@@ -189,6 +190,47 @@ noisy = run_bell_measurements(
     built.circuit, processor.output_ports, testbed=testbed, backend_noise=True,
 )
 ```
+
+## Frozen hyperbolic lattice
+
+The radial placeholder has been replaced with a finite cell-adjacency graph
+from [HYPERTILING](https://gitpages.physik.uni-wuerzburg.de/hypertiling/hyperweb/doc/examples/quickstart.html).
+The construction is explicitly:
+
+- Generator: HYPERTILING **1.5.1**, `HyperbolicTiling(7, 3, 4, kernel="SRS", center="cell")`.
+- Geometry: regular `{7,3}` tiling (heptagons, three meeting at each vertex).
+- Qubits: **polygon centers**, with edges from `get_nbrs_list()` (SRS default `RO` radius search).
+- Size: **85 qubits, 196 undirected edges**; four library-defined layers, with no forced node count.
+- Interior degree: **7**, with smaller degrees at the finite boundary. This is not a degree-3 polygon-vertex graph.
+- Frozen output ports: **(5, 31)**, distance **6**; selected once as the lexicographically smallest pair attaining graph diameter.
+- Backend: seeded GenericBackendV2 on these exact edges, with bidirectional CX.
+
+The packaged artifact [hyperbolic_7_3_cells.json](src/qweave/data/hyperbolic_7_3_cells.json)
+records the generator version, parameters, edge list, ports, degree distribution,
+and Poincare disk cell-center coordinates. Experiments load this file without
+regenerating it or reselecting ports. CLI output includes its SHA256; JSON reports
+include the fingerprint and topology metadata alongside the full edge list.
+The graph fingerprint is distinct from the backend noise-property fingerprint.
+
+To intentionally regenerate the artifact using the locked environment:
+
+```sh
+uv sync --locked
+uv run python scripts/generate_hyperbolic.py
+```
+
+Regeneration checks reciprocal adjacency, connectivity and maximum degree, and
+then writes the graph and chosen ports. Review the artifact diff before using
+new results. The construction is a **provisional project model**, not a claimed
+organizer-provided graph. Confirm the required graph with the organizers before
+finalizing the common benchmark. Historical 22-node radial results describe a
+different model and must not be mixed with these results.
+
+The 85-cell count need not match Sherbrooke's 127 sites. Degree, distance, native
+gates and noise differ as well, so results do not isolate hyperbolic geometry.
+Four layers provide a small lattice with multiple routes while keeping this Bell
+experiment's active circuit small; arbitrary large uploaded circuits may still
+exceed the exact-verification resource limit.
 
 ## Shortest path and SABRE
 

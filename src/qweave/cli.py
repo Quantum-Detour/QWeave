@@ -80,6 +80,8 @@ def main() -> None:
             built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=args.seed)
             print(f"{name} / {algorithm}: {built.processor.num_qubits} sites, ports {built.processor.output_ports}")
             print(f"  graph source: {PROCESSOR_CONFIGS[name].provenance}")
+            if PROCESSOR_CONFIGS[name].topology_metadata:
+                print(f"  topology SHA256: {PROCESSOR_CONFIGS[name].topology_metadata['artifact_sha256']}")
             print(f"  shortest reference path: {' -> '.join(map(str, built.route))}")
             print(f"  routing SWAPs: {built.routing.routing_swaps}")
             print(f"  output-restoration SWAPs: {built.routing.restoration_swaps}")
@@ -125,6 +127,7 @@ def main() -> None:
                     "ports": built.processor.output_ports, "shortest_reference_path": built.route,
                     "graph_provenance": PROCESSOR_CONFIGS[name].provenance,
                     "edges": built.processor.edges,
+                    "topology_metadata": PROCESSOR_CONFIGS[name].topology_metadata,
                     "ideal_fidelity": fidelity, "native_ideal_fidelity": native_fidelity,
                     "noiseless": _result_record(result), "noisy": _result_record(noisy) if noisy else None,
                 })
