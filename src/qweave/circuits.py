@@ -3,9 +3,10 @@
 from dataclasses import dataclass
 
 import networkx as nx
-from qiskit import QuantumCircuit
+from qiskit import ClassicalRegister, QuantumCircuit
 
 from .processors import Processor, get_processor
+from .routing import RoutingInfo, route_circuit
 
 
 @dataclass(frozen=True)
@@ -13,6 +14,7 @@ class BellCircuit:
     processor: Processor
     route: tuple[int, ...]
     circuit: QuantumCircuit
+    routing: RoutingInfo
 
 
 def build_ideal_bell_circuit(*, measure: bool = True) -> QuantumCircuit:
@@ -27,13 +29,13 @@ def build_ideal_bell_circuit(*, measure: bool = True) -> QuantumCircuit:
 
 
 def build_bell_circuit(
-    processor: str | Processor, *, measure: bool = True
+    processor: str | Processor, *, measure: bool = True,
+    algorithm: str = "shortest_path", seed: int = 42
 ) -> BellCircuit:
-    """Prepare a Bell pair at the selected physical output ports.
+    """Route one shared logical Bell preparation with fixed input/output ports.
 
-    The first output qubit stays at port A. The second is created beside it,
-    then moved through initially clean sites by explicit SWAPs. Among shortest
-    paths, the lexicographically smallest sequence of site IDs wins.
+    ``route`` is the deterministic shortest reference path, not SABRE's trace.
+    Actual inserted/restoration SWAPs are recorded in ``routing``.
     """
     if isinstance(processor, str):
         processor = get_processor(processor)
@@ -47,14 +49,11 @@ def build_bell_circuit(
     except nx.NetworkXNoPath as exc:
         raise ValueError(f"Output ports are disconnected on {processor.name}") from exc
 
-    circuit = QuantumCircuit(
-        processor.num_qubits, 2 if measure else 0, name=f"bell_{processor.name}"
-    )
-    circuit.h(port_a)
-    circuit.cx(route[0], route[1])
-    for source, destination in zip(route[1:-1], route[2:]):
-        circuit.swap(source, destination)
+    logical = QuantumCircuit(processor.num_qubits, name=f"bell_{processor.name}")
+    logical.compose(build_ideal_bell_circuit(measure=False), qubits=processor.output_ports, inplace=True)
+    circuit, routing = route_circuit(logical, processor, algorithm=algorithm, seed=seed)
     if measure:
+        circuit.add_register(ClassicalRegister(2, "bell"))
         circuit.measure(port_a, 0)
         circuit.measure(port_b, 1)
-    return BellCircuit(processor=processor, route=route, circuit=circuit)
+    return BellCircuit(processor=processor, route=route, circuit=circuit, routing=routing)

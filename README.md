@@ -6,12 +6,12 @@ in [qmrp-todo.md](qmrp-todo.md).
 
 ## First circuit scaffold
 
-The `src/qweave` package currently builds a Bell pair at two physical output
-ports on each of three processor graphs. It prepares the pair on adjacent
-sites, then uses explicit SWAPs along a deterministic shortest path to move
-one Bell partner to port B. The untouched reference qubit remains at port A.
-The circuit builder can include terminal measurements or return an unmeasured
-circuit for later analysis.
+The `src/qweave` package builds a Bell pair at two fixed physical output ports
+on each of three processor graphs. Both routing methods receive the same H + CX
+logical preparation, initially placed at those ports. They insert adjacent SWAPs
+to make the CX executable; a shared restoration step returns all logical qubits
+to their original sites before measurements. The circuit builder can include
+terminal measurements or return an unmeasured circuit for analysis.
 
 | Processor ID | Sites | Provisional ports | Graph source |
 | --- | ---: | --- | --- |
@@ -61,7 +61,7 @@ circuits, including their basis rotations.
 uv run qweave --shots 3072 --seed 42
 ```
 
-`--shots` is the total budget **per processor per noise setting**, shared evenly across XX, YY,
+`--shots` is the total budget **per algorithm per processor per noise setting**, shared evenly across XX, YY,
 and ZZ; remainder shots go to XX and then YY. The default is 1,024 shots per
 basis. Each basis uses seed + its index (0, 1, 2). The simulator uses Aer's
 matrix product state method without a bond-dimension cap. Every shot
@@ -76,7 +76,7 @@ for matched ideal and noisy runs. Manual bit-flip probabilities are removed.
 Both modes use the selected backend's native gates and fixed physical placement.
 
 Each comparison arm receives the full requested shot budget: 3,072 shots means
-6,144 total attempts per processor with `--noise backend`. Both arms share the
+6,144 total attempts per algorithm per processor with `--noise backend`. Both arms share the
 same native circuits and seed schedule. There is no protection or postselection.
 `--show-circuit` displays executed native instructions; simulator noise is not
 drawn as additional gates.
@@ -143,13 +143,13 @@ snapshot, not a complete reproduction of hardware noise. Unscheduled idle-time
 relaxation is excluded; explicit delay instructions are rejected in this mode.
 
 As in the supplied transpilation notebook, compilation uses
-`generate_preset_pass_manager`. For the current pre-routed A baseline, we use
+`generate_preset_pass_manager`. After either routing strategy, we use
 optimization level **0**, fixed identity placement, and `routing_method="none"`
 so translation preserves the chosen route and output ports. The notebook's
 level-3 example optimizes and routes general logical circuits; copying those
 settings here could change the routing method being compared. Native operations
 are checked against the target, and the native preparation receives its own
-exact ideal-fidelity check. SABRE integration remains a separate task.
+exact ideal-fidelity check. SABRE runs in the preceding routing stage.
 
 The other supplied notebooks inform later work:
 
@@ -188,6 +188,67 @@ built = build_bell_circuit(processor, measure=False)
 noisy = run_bell_measurements(
     built.circuit, processor.output_ports, testbed=testbed, backend_noise=True,
 )
+```
+
+## Shortest path and SABRE
+
+```sh
+# Both methods, same backend instance and properties for each processor:
+uv run qweave --algorithm all --noise backend --report routing-comparison.json
+# SABRE alone, including all three measurement circuit drawings:
+uv run qweave --algorithm sabre --processor hyperbolic_inspired --noise backend --show-circuit
+```
+
+The default remains `--algorithm shortest_path`. `qweave.routing` contains the
+strategy registry and a common routing interface. Shortest path moves the second
+CX operand towards the first using a deterministic shortest path. SABRE uses
+Qiskit's [SabreSwap](https://quantum.cloud.ibm.com/docs/en/api/qiskit/qiskit.transpiler.passes.SabreSwap)
+with `heuristic="decay"`, `trials=1`, and `seed=--seed`. There is no SABRE layout
+search: both methods start at exactly the same physical sites. The seed and
+explicit trial count make the SABRE settings reproducible with locked versions.
+Both routers use the same undirected physical adjacency; the common native
+compiler then enforces the backend's actual gate directions.
+
+Common code handles logical preparation, placement restoration, backend-native
+translation at level 0, exact verification, XX/YY/ZZ basis changes, simulation,
+noise, uncertainty, and reporting. Each processor's backend is constructed once
+and reused across methods. Measurement circuits are compiled once per method
+and reused unchanged in the noiseless and noisy arms. Shot budgets and sampling
+seeds match between methods; their routed gate sequences can differ.
+
+**Fixed-port policy:** routing may move either logical qubit. After routing, the
+shared wrapper reverses the sequence of inserted SWAPs to restore the complete
+initial placement. Restoration gates receive noise and count towards gate cost
+and depth. This simple policy is reproducible but not a minimum-cost placement
+restoration algorithm. It is part of the benchmark definition for both methods.
+
+**Baseline change:** the old Bell-specific shortest-path circuit exploited
+initially zero workspace and used only outward transport. The new comparison
+routes the same logical H + CX workload for both methods, so shortest-path SWAP
+counts and noisy results change. For a port distance of d edges, shortest path
+now uses `d - 1` routing SWAPs plus `d - 1` restoration SWAPs. Do not mix earlier
+results with this `fixed-port-logical-bell-v2` benchmark.
+
+JSON reports use schema version 2 and include the routing algorithm/settings,
+initial/routed/final placements, routing and restoration SWAP lists, routing
+runtime (including restoration), and routed preparation QASM. The displayed
+shortest reference path is a graph diagnostic; SABRE's actual movement is its
+SWAP trace. The current routing interface is limited to H/CX preparation inputs;
+general circuit uploads remain future work. This small Bell workload alone does
+not establish which routing method is better on larger circuits.
+
+Python callers select the strategy without changing the measurement pipeline:
+
+```python
+from qweave import prepare_bell_measurements, sample_bell_measurements
+
+for algorithm in ("shortest_path", "sabre"):
+    built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=42)
+    prepared = prepare_bell_measurements(built.circuit, processor.output_ports, testbed=testbed)
+    clean = sample_bell_measurements(prepared, testbed=testbed, shots=3072, seed=42)
+    noisy = sample_bell_measurements(
+        prepared, testbed=testbed, backend_noise=True, shots=3072, seed=42,
+    )
 ```
 
 ## Sampling uncertainty
@@ -229,7 +290,8 @@ from qweave import (
 testbed = FakeBackendTestbed.for_processor("ibm_heavy_hex")
 built = build_bell_circuit(testbed.processor((0, 15)), measure=False)
 physical_circuit = built.circuit
-physical_route = built.route
+shortest_reference_path = built.route
+routing_trace = built.routing
 ideal_reference = build_ideal_bell_circuit(measure=False)
 fidelity = bell_fidelity(physical_circuit, built.processor.output_ports)
 print(f"Ideal Bell fidelity: {fidelity:.12f}")

@@ -108,16 +108,39 @@ def run_bell_measurements(
     Divide shots equally; give any remainder to XX, then YY. Seed each basis
     with seed + its index. All shots are retained; no postselection is applied.
     """
+    circuits = prepare_bell_measurements(circuit, ports, testbed=testbed)
+    return sample_bell_measurements(
+        circuits, shots=shots, seed=seed, testbed=testbed, backend_noise=backend_noise,
+    )
+
+
+def prepare_bell_measurements(
+    circuit: QuantumCircuit, ports: tuple[int, int], *, testbed: FakeBackendTestbed | None = None,
+) -> dict[str, QuantumCircuit]:
+    """Build and compile XX/YY/ZZ once for reuse in clean and noisy arms."""
+    return {
+        basis: testbed.compile(measured) if testbed else compile_ideal_circuit(measured)
+        for basis, measured in build_bell_measurement_circuits(circuit, ports).items()
+    }
+
+
+def sample_bell_measurements(
+    circuits: dict[str, QuantumCircuit], *, shots: int = 3072, seed: int = 42,
+    testbed: FakeBackendTestbed | None = None, backend_noise: bool = False,
+) -> BellMeasurementResult:
+    """Sample circuits returned by prepare_bell_measurements without recompiling.
+
+    Supply the same test bed used for preparation. Each arm receives the full
+    shot budget and the same per-basis seed schedule.
+    """
     if not isinstance(shots, int) or isinstance(shots, bool) or shots < 3:
         raise ValueError("shots must be an integer total budget of at least 3")
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 3:
         raise ValueError("seed must be an integer between 0 and 2**32 - 3")
     if backend_noise and testbed is None:
         raise ValueError("backend_noise requires a fake backend test bed")
-    circuits = {
-        basis: testbed.compile(measured) if testbed else compile_ideal_circuit(measured)
-        for basis, measured in build_bell_measurement_circuits(circuit, ports).items()
-    }
+    if set(circuits) != set(BASES):
+        raise ValueError("Prepared circuits must contain exactly XX, YY, and ZZ")
     simulator = AerSimulator(
         method="matrix_product_state",
         noise_model=testbed.noise_model if backend_noise else None,

@@ -2,7 +2,7 @@
 
 Compare four quantum routing methods across three processor models, then explore their results through a Quantum Packet Tracer and research dashboard. Detailed explanations are in [qmrp-project-overview.md](qmrp-project-overview.md).
 
-**Current progress:** The CLI uses backend-native compilation for both noiseless and noisy Bell baselines. Five-node and radial models use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. This revision has not been test-run. Official graph/port confirmation, other routing methods, and a verified hyperbolic tiling remain pending.
+**Current progress:** Shortest path and SABRE now share logical Bell preparation, fixed initial placement, output restoration, native compilation, measurements, noise, and reporting. Five-node and radial models use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. This revision has not been test-run. Official graph/port confirmation, noise-aware/QMRP routing, and a verified hyperbolic tiling remain pending.
 
 ## 1. Topologies and Bell baseline
 
@@ -18,7 +18,8 @@ Compare four quantum routing methods across three processor models, then explore
 ## 2. Four routing methods
 
 - [x] A — Original: deterministic shortest-path routing with explicit SWAPs for the Bell baseline.
-- [ ] B — Qiskit built-in: SABRE routing with reproducible settings.
+- [x] B — Qiskit built-in: SabreSwap with fixed seed, decay heuristic, and one trial; shared Bell pipeline with shortest path.
+- [ ] Validate the new fixed-port comparison on all three models; include restoration costs and check reproducibility.
 - [ ] C — Noise-aware: routing with explicit edge-error costs.
 - [ ] D — QMRP: encode across two qubits, find capacity-constrained disjoint routes, decode, and postselect using the parity syndrome.
 - [ ] Track logical-qubit placement and workspace; use separate launch/arrival sites and record shortest-path fallbacks when protection is infeasible.

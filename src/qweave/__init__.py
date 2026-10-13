@@ -7,6 +7,7 @@ from .backends import BackendSnapshot, FakeBackendTestbed
 from .measurements import (
     BellMeasurementResult, build_bell_measurement_circuits,
     measured_bell_fidelity, run_bell_measurements,
+    prepare_bell_measurements, sample_bell_measurements,
 )
 
 __all__ = [
@@ -17,6 +18,8 @@ __all__ = [
     "build_bell_measurement_circuits",
     "measured_bell_fidelity",
     "run_bell_measurements",
+    "prepare_bell_measurements",
+    "sample_bell_measurements",
     "PROCESSORS",
     "PROCESSOR_CONFIGS",
     "Processor",
