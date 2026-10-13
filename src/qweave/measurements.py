@@ -2,11 +2,13 @@
 
 from dataclasses import dataclass
 from collections.abc import Mapping
+from math import log, sqrt
 
 from qiskit import ClassicalRegister, QuantumCircuit
 from qiskit_aer import AerSimulator
 
 from .verification import _validate_bell_input
+from .noise import BitFlipNoise, compile_synthetic_circuit
 
 BASES = ("XX", "YY", "ZZ")
 
@@ -18,6 +20,9 @@ class BellMeasurementResult:
     fidelity: float
     shots_by_basis: dict[str, int]
     seed: int
+    fidelity_interval: tuple[float, float]
+    circuits: dict[str, QuantumCircuit]
+    noise: BitFlipNoise | None
 
 
 def build_bell_measurement_circuits(
@@ -74,10 +79,29 @@ def measured_bell_fidelity(counts: Mapping[str, Mapping[str, int]]) -> float:
     return (1 + correlations["XX"] - correlations["YY"] + correlations["ZZ"]) / 4
 
 
+def bell_fidelity_interval(counts: Mapping[str, Mapping[str, int]]) -> tuple[float, float]:
+    """Conservative 95% sampling interval using simultaneous Hoeffding bounds.
+
+    For each even-parity probability use epsilon=sqrt(log(6/0.05)/(2N)).
+    A union bound covers all three bases, then propagate endpoints through F.
+    Assumes independent shots. Covers sampling error, not measurement bias or
+    uncertainty in the assumed noise model. Do not clip the fidelity interval.
+    """
+    correlations = bell_correlations(counts)
+    bounds = {}
+    for basis, correlation in correlations.items():
+        p = (1 + correlation) / 2
+        epsilon = sqrt(log(6 / 0.05) / (2 * sum(counts[basis].values())))
+        bounds[basis] = (2 * max(0, p - epsilon) - 1, 2 * min(1, p + epsilon) - 1)
+    x, y, z = (bounds[basis] for basis in BASES)
+    return ((1 + x[0] - y[1] + z[0]) / 4, (1 + x[1] - y[0] + z[1]) / 4)
+
+
 def run_bell_measurements(
-    circuit: QuantumCircuit, ports: tuple[int, int], *, shots: int = 3072, seed: int = 42
+    circuit: QuantumCircuit, ports: tuple[int, int], *, shots: int = 3072, seed: int = 42,
+    noise: BitFlipNoise | None = None,
 ) -> BellMeasurementResult:
-    """Run noiseless Aer experiments with a total shot budget across all bases.
+    """Run Aer experiments with optional noise and a total shot budget across bases.
 
     Divide shots equally; give any remainder to XX, then YY. Seed each basis
     with seed + its index. All shots are retained; no postselection is applied.
@@ -86,8 +110,13 @@ def run_bell_measurements(
         raise ValueError("shots must be an integer total budget of at least 3")
     if not isinstance(seed, int) or isinstance(seed, bool) or not 0 <= seed <= 2**32 - 3:
         raise ValueError("seed must be an integer between 0 and 2**32 - 3")
-    circuits = build_bell_measurement_circuits(circuit, ports)
-    simulator = AerSimulator(method="matrix_product_state")
+    circuits = {
+        basis: compile_synthetic_circuit(measured)
+        for basis, measured in build_bell_measurement_circuits(circuit, ports).items()
+    }
+    simulator = AerSimulator(
+        method="matrix_product_state", noise_model=noise.to_aer() if noise else None
+    )
     counts = {}
     shots_by_basis = {}
     for index, basis in enumerate(BASES):
@@ -99,4 +128,5 @@ def run_bell_measurements(
     return BellMeasurementResult(
         counts=counts, correlations=bell_correlations(counts),
         fidelity=measured_bell_fidelity(counts), shots_by_basis=shots_by_basis, seed=seed,
+        fidelity_interval=bell_fidelity_interval(counts), circuits=circuits, noise=noise,
     )

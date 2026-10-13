@@ -2,16 +2,17 @@
 
 Compare four quantum routing methods across three processor models, then explore their results through a Quantum Packet Tracer and research dashboard. Detailed explanations are in [qmrp-project-overview.md](qmrp-project-overview.md).
 
-**Current progress:** The noiseless Bell baseline is verified on all three provisional graphs: exact and measured fidelity are 1.0, and all 15 tests passed. Official graph/port confirmation and a verified hyperbolic tiling remain pending.
+**Current progress:** Noiseless and synthetic bit-flip-noise Bell baselines run on all three provisional graphs, with shot-based fidelity and conservative 95% sampling intervals. Noiseless fidelity is 1.0; all 24 tests passed. Official graph/port confirmation, backend-native compilation, and a verified hyperbolic tiling remain pending.
 
 ## 1. Topologies and Bell baseline
 
 - [ ] Confirm the five-node, IBM heavy-hex, and hyperbolic graph definitions, fixed output ports, and allowed gate directions.
 - [ ] Plot each complete hardware graph with its selected route beside the circuit diagram.
 - [x] Build the shortest-path Bell circuit and verify ideal output fidelity with Qiskit on all three provisional graphs.
-- [ ] Check every circuit interaction against the graph and allowed gate directions.
+- [x] Check every compiled two-qubit interaction against graph edges in tests under the current synthetic bidirectional-CX convention.
+- [ ] Validate interactions against organizer-confirmed graphs and native gate directions.
 - [x] Add XX, YY, and ZZ measurement circuits and calculate Bell fidelity: F = (1 + ⟨XX⟩ − ⟨YY⟩ + ⟨ZZ⟩) / 4.
-- [ ] Add uncertainty to the measured Bell fidelity.
+- [x] Add conservative 95% sampling intervals to measured Bell fidelity using simultaneous Hoeffding bounds.
 
 ## 2. Four routing methods
 
@@ -24,7 +25,10 @@ Compare four quantum routing methods across three processor models, then explore
 
 ## 3. Noisy comparison and research
 
+- [ ] Complete the nine required benchmark cases: ideal baseline, noisy baseline, and noisy + protection for each of the five-node, contemporary IBM-style, and hyperbolic-inspired processor models, using the common processor definitions, fixed output ports, and noise assumptions.
 - [ ] Run all four methods on all three models with matched ports, placement constraints, noise assumptions, and attempted-shot budgets; retain a separate ideal reference.
+- [x] Compare noiseless and noisy shortest-path Bell baselines on all three provisional graphs with matched shots and configurable independent bit-flip/readout errors.
+- [x] Decompose SWAPs into three CX gates, apply synthetic gate noise including basis rotations, and report executed gate costs and unprotected yield.
 - [ ] Include noise on native gates, encoding/decoding, and readout. Start with bit flips, then test depolarizing noise and relaxation.
 - [ ] Report fidelity, depth, native two-qubit gates, SWAPs, physical qubits, runtime, accepted/discarded shots, and protection coverage.
 - [ ] Sweep noise and port distance to find where QMRP helps or hurts; compare with all baselines and encoded execution without postselection.
