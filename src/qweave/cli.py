@@ -12,7 +12,9 @@ from .backends import FakeBackendTestbed
 from .circuits import build_bell_circuit
 from .measurements import BellMeasurementResult, prepare_bell_measurements, sample_bell_measurements
 from .processors import PROCESSOR_CONFIGS
-from .routing import ROUTERS
+from .routing import ALGORITHM_IDS, ROUTERS
+from .costs import BackendOperationCosts
+from .settings import OptimizationLevel
 from .verification import BELL_FIDELITY_TOLERANCE, bell_fidelity
 
 
@@ -52,6 +54,7 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Simulator seed (default: 42)")
     parser.add_argument("--noise", choices=("none", "backend"), default="none", help="backend uses FakeSherbrooke for IBM and seeded GenericBackendV2 for custom graphs")
     parser.add_argument("--backend-seed", type=int, default=1234, help="Seed for synthetic backend properties, independent of shot sampling (default: 1234)")
+    parser.add_argument("--optimization", choices=tuple(level.name.lower() for level in OptimizationLevel), default=OptimizationLevel.MAXIMUM.name.lower(), help="Shared native optimization preset (default: maximum, Qiskit level 3)")
     parser.add_argument("--report", type=Path, help="Save configuration, snapshot identity, counts, metrics, and executed QASM circuits as JSON")
     args = parser.parse_args()
     if args.shots < 3:
@@ -67,6 +70,7 @@ def main() -> None:
     for name in names:
         testbed = FakeBackendTestbed.for_processor(
             name, backend_seed=args.backend_seed, compiler_seed=args.seed,
+            optimization_level=OptimizationLevel[args.optimization.upper()],
         )
         print(f"Test bed: {testbed.snapshot.backend_class}; source: {testbed.snapshot.noise_source}; {testbed.snapshot.num_qubits} sites")
         if testbed.snapshot.backend_seed is not None:
@@ -74,15 +78,19 @@ def main() -> None:
         else:
             print(f"  calibration: {testbed.snapshot.calibration_time}")
         print(f"  SHA256: {testbed.snapshot.snapshot_sha256}")
-        print("  native compilation: fixed physical placement, optimization level 0; no rerouting or mitigation")
+        print(f"  native compilation: fixed physical placement, optimization {testbed.snapshot.optimization_name} (level {int(testbed.snapshot.optimization_level)}); no rerouting or mitigation")
         processor = testbed.processor(PROCESSOR_CONFIGS[name].output_ports, name=name)
+        costs = BackendOperationCosts(testbed) if "noise_aware" in algorithms else None
         for algorithm in algorithms:
-            built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=args.seed)
+            built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=args.seed, costs=costs)
             print(f"{name} / {algorithm}: {built.processor.num_qubits} sites, ports {built.processor.output_ports}")
             print(f"  graph source: {PROCESSOR_CONFIGS[name].provenance}")
             if PROCESSOR_CONFIGS[name].topology_metadata:
                 print(f"  topology SHA256: {PROCESSOR_CONFIGS[name].topology_metadata['artifact_sha256']}")
             print(f"  shortest reference path: {' -> '.join(map(str, built.route))}")
+            if built.routing.cost_model:
+                print(f"  estimated routing cost (not fidelity): {built.routing.estimated_routing_cost:.8f}")
+                print(f"  cost preparation: {built.routing.cost_preparation_seconds:.3f}s; routing: {built.routing.runtime_seconds:.3f}s")
             print(f"  routing SWAPs: {built.routing.routing_swaps}")
             print(f"  output-restoration SWAPs: {built.routing.restoration_swaps}")
             print(f"  SWAPs before decomposition: {built.circuit.count_ops().get('swap', 0)}")
@@ -120,7 +128,7 @@ def main() -> None:
                     print(measured.draw(output="text", fold=100, idle_wires=False))
             if args.report:
                 records.append({
-                    "algorithm": "A" if algorithm == "shortest_path" else "B",
+                    "algorithm": ALGORITHM_IDS[algorithm],
                     "routing": asdict(built.routing),
                     "routed_preparation_qasm3": qasm3.dumps(built.circuit),
                     "routing_method": algorithm, "processor": name, "num_qubits": built.processor.num_qubits,
@@ -132,7 +140,7 @@ def main() -> None:
                     "noiseless": _result_record(result), "noisy": _result_record(noisy) if noisy else None,
                 })
     if args.report:
-        args.report.write_text(json.dumps({"schema_version": 2, "runs": records}, indent=2) + "\n")
+        args.report.write_text(json.dumps({"schema_version": 3, "runs": records}, indent=2) + "\n")
         print(f"Saved report: {args.report}")
     if failed:
         raise SystemExit(1)

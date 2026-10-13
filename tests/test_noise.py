@@ -2,7 +2,7 @@
 
 import unittest
 
-from qweave import PROCESSORS, build_bell_circuit
+from qweave import PROCESSORS, OptimizationLevel, build_bell_circuit
 from qweave.measurements import bell_fidelity_interval
 from qweave.compilation import compile_ideal_circuit
 
@@ -12,7 +12,7 @@ class NoiseTests(unittest.TestCase):
         for name in PROCESSORS:
             with self.subTest(processor=name):
                 built = build_bell_circuit(name, measure=False)
-                compiled = compile_ideal_circuit(built.circuit)
+                compiled = compile_ideal_circuit(built.circuit, optimization_level=OptimizationLevel.NONE)
                 self.assertEqual(compiled.num_qubits, built.circuit.num_qubits)
                 self.assertNotIn("swap", compiled.count_ops())
                 swaps = built.circuit.count_ops().get("swap", 0)

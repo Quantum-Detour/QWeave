@@ -7,7 +7,7 @@ in [qmrp-todo.md](qmrp-todo.md).
 ## First circuit scaffold
 
 The `src/qweave` package builds a Bell pair at two fixed physical output ports
-on each of three processor graphs. Both routing methods receive the same H + CX
+on each of three processor graphs. All three routing methods receive the same H + CX
 logical preparation, initially placed at those ports. They insert adjacent SWAPs
 to make the CX executable; a shared restoration step returns all logical qubits
 to their original sites before measurements. The circuit builder can include
@@ -144,13 +144,25 @@ snapshot, not a complete reproduction of hardware noise. Unscheduled idle-time
 relaxation is excluded; explicit delay instructions are rejected in this mode.
 
 As in the supplied transpilation notebook, compilation uses
-`generate_preset_pass_manager`. After either routing strategy, we use
-optimization level **0**, fixed identity placement, and `routing_method="none"`
-so translation preserves the chosen route and output ports. The notebook's
-level-3 example optimizes and routes general logical circuits; copying those
-settings here could change the routing method being compared. Native operations
-are checked against the target, and the native preparation receives its own
-exact ideal-fidelity check. SABRE runs in the preceding routing stage.
+`generate_preset_pass_manager` with **maximum optimization (level 3)** by default.
+`OptimizationLevel` provides named settings `NONE`, `LIGHT`, `MEDIUM`, and
+`MAXIMUM`. The CLI exposes `--optimization none|light|medium|maximum`; use `none`
+to reproduce the earlier translation-only baseline. All algorithms and both
+measurement arms use the same selected setting.
+
+The circuits are already routed, so fixed identity placement, trivial layout,
+and `routing_method="none"` remain explicit. Maximum optimization may cancel or
+resynthesize gates within the routed circuit; native gate counts and QASM are
+the executed workload, whereas routing/restoration SWAP lists describe the input
+to optimization. Target validation and placement checks remain active.
+`approximation_degree=1.0` disallows approximate synthesis, and
+`qubits_initially_zero=False` preserves operation semantics even when compiling
+an isolated SWAP for cost estimation. This compiler flag does not change the
+simulator's initial zero state. Level 3 is the highest preset, not a guarantee
+of optimal gates, depth, or noisy fidelity.
+
+Reports record the named and numeric level, approximation and layout settings.
+Do not mix old level-0 and new level-3 results in one routing comparison.
 
 The other supplied notebooks inform later work:
 
@@ -176,7 +188,7 @@ clean = run_bell_measurements(built.circuit, (0, 15), testbed=testbed)
 noisy = run_bell_measurements(
     built.circuit, (0, 15), testbed=testbed, backend_noise=True,
 )
-# Directed native gate error/duration data for future noise-aware route costs:
+# Directed native gate error/duration data:
 calibrations = testbed.gate_calibrations()
 ```
 
@@ -232,27 +244,27 @@ Four layers provide a small lattice with multiple routes while keeping this Bell
 experiment's active circuit small; arbitrary large uploaded circuits may still
 exceed the exact-verification resource limit.
 
-## Shortest path and SABRE
+## Shortest path, SABRE, and noise-aware routing
 
 ```sh
-# Both methods, same backend instance and properties for each processor:
+# All three methods, same backend instance and properties for each processor:
 uv run qweave --algorithm all --noise backend --report routing-comparison.json
 # SABRE alone, including all three measurement circuit drawings:
 uv run qweave --algorithm sabre --processor hyperbolic_inspired --noise backend --show-circuit
 ```
 
-The default remains `--algorithm shortest_path`. `qweave.routing` contains the
+The CLI default is `--algorithm all`; the Python builder defaults to `shortest_path`. `qweave.routing` contains the
 strategy registry and a common routing interface. Shortest path moves the second
 CX operand towards the first using a deterministic shortest path. SABRE uses
 Qiskit's [SabreSwap](https://quantum.cloud.ibm.com/docs/en/api/qiskit/qiskit.transpiler.passes.SabreSwap)
 with `heuristic="decay"`, `trials=1`, and `seed=--seed`. There is no SABRE layout
-search: both methods start at exactly the same physical sites. The seed and
+search: all methods start at exactly the same physical sites. The seed and
 explicit trial count make the SABRE settings reproducible with locked versions.
-Both routers use the same undirected physical adjacency; the common native
+All routers use the same physical adjacency; the common native
 compiler then enforces the backend's actual gate directions.
 
 Common code handles logical preparation, placement restoration, backend-native
-translation at level 0, exact verification, XX/YY/ZZ basis changes, simulation,
+compilation at the selected optimization level, exact verification, XX/YY/ZZ basis changes, simulation,
 noise, uncertainty, and reporting. Each processor's backend is constructed once
 and reused across methods. Measurement circuits are compiled once per method
 and reused unchanged in the noiseless and noisy arms. Shot budgets and sampling
@@ -262,16 +274,16 @@ seeds match between methods; their routed gate sequences can differ.
 shared wrapper reverses the sequence of inserted SWAPs to restore the complete
 initial placement. Restoration gates receive noise and count towards gate cost
 and depth. This simple policy is reproducible but not a minimum-cost placement
-restoration algorithm. It is part of the benchmark definition for both methods.
+restoration algorithm. It is part of the benchmark definition for all methods.
 
 **Baseline change:** the old Bell-specific shortest-path circuit exploited
 initially zero workspace and used only outward transport. The new comparison
-routes the same logical H + CX workload for both methods, so shortest-path SWAP
+routes the same logical H + CX workload for all methods, so shortest-path SWAP
 counts and noisy results change. For a port distance of d edges, shortest path
 now uses `d - 1` routing SWAPs plus `d - 1` restoration SWAPs. Do not mix earlier
 results with this `fixed-port-logical-bell-v2` benchmark.
 
-JSON reports use schema version 2 and include the routing algorithm/settings,
+JSON reports use schema version 3 and include the routing algorithm/settings,
 initial/routed/final placements, routing and restoration SWAP lists, routing
 runtime (including restoration), and routed preparation QASM. The displayed
 shortest reference path is a graph diagnostic; SABRE's actual movement is its
@@ -282,16 +294,67 @@ not establish which routing method is better on larger circuits.
 Python callers select the strategy without changing the measurement pipeline:
 
 ```python
-from qweave import prepare_bell_measurements, sample_bell_measurements
+from qweave import BackendOperationCosts, prepare_bell_measurements, sample_bell_measurements
 
-for algorithm in ("shortest_path", "sabre"):
-    built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=42)
+costs = BackendOperationCosts(testbed)
+for algorithm in ("shortest_path", "sabre", "noise_aware"):
+    built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=42, costs=costs)
     prepared = prepare_bell_measurements(built.circuit, processor.output_ports, testbed=testbed)
     clean = sample_bell_measurements(prepared, testbed=testbed, shots=3072, seed=42)
     noisy = sample_bell_measurements(
         prepared, testbed=testbed, backend_noise=True, shots=3072, seed=42,
     )
 ```
+
+## Method C: noise-aware weighted routing
+
+```sh
+uv run qweave --processor hyperbolic_inspired --algorithm noise_aware --noise backend --report noise-aware.json
+```
+
+`BackendOperationCosts` reads the experiment's existing backend `Target`. It
+compiles an isolated CX or SWAP using the same full-width, fixed-layout compiler and selected optimization level as execution, then sums `-log1p(-gate_error)` over its native gates,
+including introduced single-qubit gates. Costs are cached per ordered operation
+and qubit pair. These are classical compilations: route selection runs no quantum
+shots and performs no noisy simulations. Keep the backend unchanged while using
+a cost provider; create a new provider for a different calibration/configuration.
+
+For each CX between current physical sites A and B, C tries each neighbor N of A.
+It uses NetworkX weighted Dijkstra to move B to N while excluding A. A transport
+edge `u -> v` costs twice the compiled `SWAP(u, v)` score, covering transport plus
+restoration. The common restoration code repeats the same ordered SWAP arguments
+in reverse sequence; it does not replace them with `SWAP(v, u)`. Add the directed
+`CX(A, N)` score and choose the cheapest candidate. A and C share placement
+tracking and gate emission; only path selection differs. For multiple CXs, this
+is a greedy per-interaction rule, not a global optimization of the full circuit.
+
+Node/edge insertion and neighbor iteration are sorted for reproducible Dijkstra
+ties. Candidate ties use cost, then SWAP count, then the returned transport node
+sequence. No alternative native decomposition is selected only for C. Reported
+costs are native-gate error heuristics, not predicted fidelity or exact operation
+failure probabilities. Extra readout/duration penalties are excluded; fixed-port
+Bell preparation/readout are common, and scheduled idle noise is not modeled.
+
+Zero gate error contributes zero. Error 1 makes an operation unusable; missing,
+nonfinite or out-of-range errors produce explicit diagnostics. No finite route
+means failure rather than an unreported shortest-path fallback. An existing
+provider must match the processor width and graph; pass the same test bed used
+for measurements to preserve noise assumptions.
+
+Reports label this method **C** and record model `native-negative-log-gate-error-v2`,
+backend fingerprint and compiler settings, selected transport paths, CX/SWAP native-gate breakdowns,
+restoration costs, and estimated total routing cost. At higher optimization
+levels the sum of isolated-operation costs generally differs from the full
+optimized circuit cost because gates can cancel across operation boundaries.
+Method C does not compile/simulate every candidate full circuit to rank paths. `runtime_seconds` excludes
+new cost compilation; `cost_preparation_seconds` records that CPU work separately.
+Repeated calls reuse cached costs. The final measured fidelity determines whether
+the choice helped; neither a longer path nor a lower score guarantees improvement.
+The five-node tree has no alternative simple path and may match A exactly.
+
+Research motivation: Murali et al., [Noise-Adaptive Compiler Mappings for Noisy
+Intermediate-Scale Quantum Computers](https://arxiv.org/abs/1901.11054). This is a
+simpler weighted-routing baseline, not a reproduction of their compiler.
 
 ## Sampling uncertainty
 

@@ -1,5 +1,7 @@
 """QWeave research code for quantum routing experiments."""
 
+from .settings import OptimizationLevel
+from .costs import BackendOperationCosts
 from .circuits import BellCircuit, build_bell_circuit, build_ideal_bell_circuit
 from .processors import PROCESSOR_CONFIGS, PROCESSORS, Processor, get_processor
 from .verification import bell_fidelity
@@ -11,6 +13,8 @@ from .measurements import (
 )
 
 __all__ = [
+    "OptimizationLevel",
+    "BackendOperationCosts",
     "BellCircuit",
     "BackendSnapshot",
     "FakeBackendTestbed",

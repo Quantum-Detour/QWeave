@@ -15,6 +15,7 @@ from qiskit_ibm_runtime.fake_provider import FakeSherbrooke
 from qiskit_ibm_runtime.fake_provider.fake_backend import FakeBackendV2
 
 from .processors import PROCESSOR_CONFIGS, Processor
+from .settings import OptimizationLevel
 
 
 @dataclass(frozen=True)
@@ -31,7 +32,11 @@ class BackendSnapshot:
     noise_source: str = "calibration_snapshot"
     backend_seed: int | None = None
     generator_config: dict | None = None
-    optimization_level: int = 0
+    optimization_level: OptimizationLevel = OptimizationLevel.MAXIMUM
+    optimization_name: str = OptimizationLevel.MAXIMUM.name.lower()
+    approximation_degree: float = 1.0
+    qubits_initially_zero: bool = False
+    layout_method: str = "trivial"
     routing_method: str = "none"
     simulator_method: str = "matrix_product_state"
     noise_recipe: str = "NoiseModel.from_backend: gate_error, readout_error, thermal_relaxation; temperature=0"
@@ -58,6 +63,7 @@ class FakeBackendTestbed:
     @classmethod
     def for_processor(
         cls, name: str, *, backend_seed: int = 1234, compiler_seed: int = 42,
+        optimization_level: OptimizationLevel = OptimizationLevel.MAXIMUM,
     ) -> "FakeBackendTestbed":
         """Construct the shared backend for a named processor configuration."""
         try:
@@ -65,7 +71,7 @@ class FakeBackendTestbed:
         except KeyError as exc:
             raise ValueError(f"Unknown processor {name!r}; choose one of: {', '.join(PROCESSOR_CONFIGS)}") from exc
         if config.backend_kind == "sherbrooke":
-            return cls.sherbrooke(compiler_seed=compiler_seed)
+            return cls.sherbrooke(compiler_seed=compiler_seed, optimization_level=optimization_level)
         if config.backend_kind != "generic" or config.num_qubits is None:
             raise ValueError(f"Invalid backend configuration for {name!r}")
         topology = Processor(
@@ -73,16 +79,17 @@ class FakeBackendTestbed:
             num_qubits=config.num_qubits, edges=config.edges,
             output_ports=config.output_ports, provenance=config.provenance,
         )
-        return cls.generic(topology, backend_seed=backend_seed, compiler_seed=compiler_seed)
+        return cls.generic(topology, backend_seed=backend_seed, compiler_seed=compiler_seed, optimization_level=optimization_level)
 
     @classmethod
-    def sherbrooke(cls, *, compiler_seed: int = 42) -> "FakeBackendTestbed":
+    def sherbrooke(cls, *, compiler_seed: int = 42, optimization_level: OptimizationLevel = OptimizationLevel.MAXIMUM) -> "FakeBackendTestbed":
         """Load the same fake backend used in transpile-with-pass-managers.ipynb."""
-        return cls(FakeSherbrooke(), compiler_seed=compiler_seed)
+        return cls(FakeSherbrooke(), compiler_seed=compiler_seed, optimization_level=optimization_level)
 
     @classmethod
     def generic(
-        cls, processor: Processor, *, backend_seed: int = 1234, compiler_seed: int = 42
+        cls, processor: Processor, *, backend_seed: int = 1234, compiler_seed: int = 42,
+        optimization_level: OptimizationLevel = OptimizationLevel.MAXIMUM,
     ) -> "FakeBackendTestbed":
         """Generate a reproducible synthetic target on the given physical graph.
 
@@ -98,16 +105,19 @@ class FakeBackendTestbed:
             "coupling_map": [list(edge) for edge in coupling],
             "control_flow": False, "noise_info": True, "seed": backend_seed,
         }
-        return cls(GenericBackendV2(**deepcopy(config)), compiler_seed=compiler_seed, generator_config=config)
+        return cls(GenericBackendV2(**deepcopy(config)), compiler_seed=compiler_seed, generator_config=config, optimization_level=optimization_level)
 
     def __init__(
         self, backend: FakeBackendV2 | GenericBackendV2, *, compiler_seed: int = 42,
         generator_config: dict | None = None,
+        optimization_level: OptimizationLevel = OptimizationLevel.MAXIMUM,
     ):
         if not isinstance(backend, (FakeBackendV2, GenericBackendV2)):
             raise ValueError("The test bed requires an offline snapshot or GenericBackendV2")
         if isinstance(compiler_seed, bool) or not isinstance(compiler_seed, int) or compiler_seed < 0:
             raise ValueError("compiler_seed must be a nonnegative integer")
+        if not isinstance(optimization_level, OptimizationLevel):
+            raise ValueError("optimization_level must be an OptimizationLevel enum member")
         self.backend = backend
         self.target = backend.target
         self.compiler_seed = compiler_seed
@@ -148,6 +158,7 @@ class FakeBackendTestbed:
             noise_source="generated_synthetic" if generator_config else "calibration_snapshot",
             backend_seed=generator_config["seed"] if generator_config else None,
             generator_config=generator_config,
+            optimization_level=optimization_level, optimization_name=optimization_level.name.lower(),
         )
         self.noise_model = NoiseModel.from_backend(
             backend, gate_error=True, readout_error=True, thermal_relaxation=True, temperature=0,
@@ -182,7 +193,10 @@ class FakeBackendTestbed:
         if any(item.operation.name == "delay" for item in circuit.data):
             raise ValueError("Explicit idle delays require scheduled relaxation support")
         manager = generate_preset_pass_manager(
-            optimization_level=0, backend=self.backend,
+            optimization_level=self.snapshot.optimization_level, backend=self.backend,
+            approximation_degree=self.snapshot.approximation_degree,
+            qubits_initially_zero=self.snapshot.qubits_initially_zero,
+            layout_method=self.snapshot.layout_method,
             initial_layout=list(range(circuit.num_qubits)),
             routing_method="none", seed_transpiler=self.compiler_seed,
         )

@@ -2,7 +2,7 @@
 
 Compare four quantum routing methods across three processor models, then explore their results through a Quantum Packet Tracer and research dashboard. Detailed explanations are in [qmrp-project-overview.md](qmrp-project-overview.md).
 
-**Current progress:** Shortest path and SABRE now share logical Bell preparation, fixed initial placement, output restoration, native compilation, measurements, noise, and reporting. Five-node and the frozen 85-cell HYPERTILING {7,3} model use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. This revision has not been test-run. The radial placeholder has been replaced with a generated cell-adjacency lattice (interior degree 7), frozen ports (5, 31), generator metadata and a graph fingerprint. Organizer confirmation of graph/ports and noise-aware/QMRP routing remain pending.
+**Current progress:** Shortest path, SABRE, and noise-aware routing now share logical Bell preparation, fixed initial placement, output restoration, native compilation, measurements, noise, and reporting. Five-node and the frozen 85-cell HYPERTILING {7,3} model use seeded GenericBackendV2 properties; IBM uses the supplied notebook's 127-qubit FakeSherbrooke snapshot. Manual bit-flip controls have been removed. Measurement results include conservative 95% sampling intervals. The compiler now defaults to named MAXIMUM optimization (Qiskit level 3) for all methods, with fixed layout, no rerouting, and exact synthesis. All 42 tests pass. All nine A/B/C processor combinations passed exact-fidelity and report-consistency checks at maximum optimization with 3,072 shots per arm. The radial placeholder has been replaced with a generated cell-adjacency lattice (interior degree 7), frozen ports (5, 31), generator metadata and a graph fingerprint. Organizer confirmation of graph/ports and QMRP protection remain pending.
 
 ## 1. Topologies and Bell baseline
 
@@ -20,8 +20,9 @@ Compare four quantum routing methods across three processor models, then explore
 
 - [x] A — Original: deterministic shortest-path routing with explicit SWAPs for the Bell baseline.
 - [x] B — Qiskit built-in: SabreSwap with fixed seed, decay heuristic, and one trial; shared Bell pipeline with shortest path.
-- [ ] Validate the new fixed-port comparison on all three models; include restoration costs and check reproducibility.
-- [ ] C — Noise-aware: routing with explicit edge-error costs.
+- [x] Validate fixed-port ideal correctness and native compilation on all three models; check restoration costs, deterministic routing, and shared clean/noisy execution.
+- [x] Use a shared OptimizationLevel enum, maximum optimization by default, and recorded compiler settings for execution and routing-cost estimation.
+- [x] C — Noise-aware: weighted Dijkstra using cached native CX/SWAP error costs from the same backend, including shared output restoration.
 - [ ] D — QMRP: encode across two qubits, find capacity-constrained disjoint routes, decode, and postselect using the parity syndrome.
 - [ ] Track logical-qubit placement and workspace; use separate launch/arrival sites and record shortest-path fallbacks when protection is infeasible.
 - [ ] Verify noiseless correctness across all methods, detection of single bit flips, and the limitations of the parity check.

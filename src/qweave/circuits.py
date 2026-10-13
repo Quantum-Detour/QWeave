@@ -7,6 +7,7 @@ from qiskit import ClassicalRegister, QuantumCircuit
 
 from .processors import Processor, get_processor
 from .routing import RoutingInfo, route_circuit
+from .costs import BackendOperationCosts
 
 
 @dataclass(frozen=True)
@@ -30,7 +31,8 @@ def build_ideal_bell_circuit(*, measure: bool = True) -> QuantumCircuit:
 
 def build_bell_circuit(
     processor: str | Processor, *, measure: bool = True,
-    algorithm: str = "shortest_path", seed: int = 42
+    algorithm: str = "shortest_path", seed: int = 42,
+    costs: BackendOperationCosts | None = None,
 ) -> BellCircuit:
     """Route one shared logical Bell preparation with fixed input/output ports.
 
@@ -51,7 +53,7 @@ def build_bell_circuit(
 
     logical = QuantumCircuit(processor.num_qubits, name=f"bell_{processor.name}")
     logical.compose(build_ideal_bell_circuit(measure=False), qubits=processor.output_ports, inplace=True)
-    circuit, routing = route_circuit(logical, processor, algorithm=algorithm, seed=seed)
+    circuit, routing = route_circuit(logical, processor, algorithm=algorithm, seed=seed, costs=costs)
     if measure:
         circuit.add_register(ClassicalRegister(2, "bell"))
         circuit.measure(port_a, 0)
