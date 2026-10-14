@@ -69,6 +69,43 @@ def _result_record(result: BellMeasurementResult) -> dict:
     }
 
 
+def _format_box_table(
+    headers: list[str],
+    alignments: list[str],
+    rows: list[list[str]],
+    section_breaks: set[int] | None = None,
+) -> str:
+    """Format table rows into an aligned Unicode box table."""
+    if section_breaks is None:
+        section_breaks = set()
+    widths = [len(h) for h in headers]
+    for row in rows:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    def make_divider(left: str, mid: str, right: str) -> str:
+        return left + mid.join("─" * (w + 2) for w in widths) + right
+
+    def format_row(row_cells: list[str]) -> str:
+        formatted = []
+        for cell, w, align in zip(row_cells, widths, alignments):
+            padded = cell.rjust(w) if align == "right" else cell.ljust(w)
+            formatted.append(f" {padded} ")
+        return "│" + "│".join(formatted) + "│"
+
+    lines = [
+        make_divider("┌", "┬", "┐"),
+        format_row(headers),
+        make_divider("├", "┼", "┤"),
+    ]
+    for idx, row in enumerate(rows):
+        if idx in section_breaks:
+            lines.append(make_divider("├", "┼", "┤"))
+        lines.append(format_row(row))
+    lines.append(make_divider("└", "┴", "┘"))
+    return "\n".join(lines)
+
+
 def _print_final_summary(rows: list[dict], *, noise: str) -> None:
     """Summarize the circuits and samples just executed by the CLI."""
     if not rows:
@@ -86,28 +123,49 @@ def _print_final_summary(rows: list[dict], *, noise: str) -> None:
         "noise_aware_mc": "C-MC: Simulation-assisted",
         "qmrp": "D: QMRP",
     }
-    print(f"\nFinal summary ({'backend noise' if noise == 'backend' else 'noiseless'}; ZZ circuit metrics)")
-    print("| Processor | Algorithm | Fidelity | SWAPs | Native 2-qubit gates | Depth | Accepted |")
-    print("|---|---|---:|---:|---:|---:|---:|")
-    best_by_processor = {
-        processor: max((row["fidelity"] for row in rows
-                        if row["processor"] == processor and row["fidelity"] is not None),
-                       default=None)
-        for processor in {row["processor"] for row in rows}
-    }
+    headers = ["Processor", "Algorithm", "Noiseless", "Noisy", "SWAPs", "Native 2-qubit gates", "Depth", "Accepted"]
+    alignments = ["left", "left", "right", "right", "right", "right", "right", "right"]
+
+    table_rows = []
+    section_breaks = set()
     previous_processor = None
-    for row in rows:
+
+    for idx, row in enumerate(rows):
         processor = row["processor"]
+        if previous_processor is not None and processor != previous_processor:
+            section_breaks.add(idx)
+
         label = processor_labels.get(processor, processor) if processor != previous_processor else ""
-        fidelity = row["fidelity"]
-        displayed_fidelity = "undefined" if fidelity is None else f"{fidelity:.4f}"
-        if (fidelity is not None and best_by_processor[processor] is not None
-                and isclose(fidelity, best_by_processor[processor], abs_tol=1e-12, rel_tol=0)):
-            displayed_fidelity = f"**{displayed_fidelity}**"
-        print(f"| {label} | {algorithm_labels[row['algorithm']]} | {displayed_fidelity} | "
-              f"{row['swaps']} | {row['native_two_qubit_gates']} | {row['depth']} | "
-              f"{row['accepted'] / row['attempted']:.2%} |")
+        
+        noiseless = row.get("noiseless_fidelity")
+        if noiseless is None and "fidelity" in row and noise != "backend":
+            noiseless = row["fidelity"]
+        noiseless_str = "undefined" if noiseless is None else f"{noiseless:.4f}"
+
+        if "noisy_fidelity" in row:
+            noisy = row["noisy_fidelity"]
+            noisy_str = f"{noisy:.4f}" if noisy is not None else ("undefined" if noise == "backend" else "—")
+        elif "fidelity" in row and noise == "backend":
+            noisy = row["fidelity"]
+            noisy_str = f"{noisy:.4f}" if noisy is not None else "undefined"
+        else:
+            noisy_str = "—"
+
+        acceptance_str = f"{row['accepted'] / row['attempted']:.2%}" if row['attempted'] > 0 else "0.00%"
+        table_rows.append([
+            label,
+            algorithm_labels.get(row["algorithm"], row["algorithm"]),
+            noiseless_str,
+            noisy_str,
+            str(row["swaps"]),
+            str(row["native_two_qubit_gates"]),
+            str(row["depth"]),
+            acceptance_str,
+        ])
         previous_processor = processor
+
+    print(f"\nFinal summary ({'backend noise' if noise == 'backend' else 'noiseless'}; ZZ circuit metrics)")
+    print(_format_box_table(headers, alignments, table_rows, section_breaks))
     print("Fidelity uses accepted XX/YY/ZZ shots; each row uses its own attempted-shot budget.")
 
 
@@ -247,6 +305,8 @@ def main() -> None:
             zz_circuit = measured_result.circuits["ZZ"]
             summary_rows.append({
                 "processor": name, "algorithm": algorithm,
+                "noiseless_fidelity": result.fidelity,
+                "noisy_fidelity": noisy.fidelity if noisy is not None else None,
                 "fidelity": measured_result.fidelity,
                 "swaps": int(built.circuit.count_ops().get("swap", 0)),
                 "native_two_qubit_gates": sum(
