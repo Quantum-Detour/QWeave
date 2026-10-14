@@ -254,13 +254,15 @@ exceed the exact-verification resource limit.
 ## Shortest path, SABRE, and noise-aware routing
 
 ```sh
-# All four methods, same backend instance and properties for each processor:
-uv run qweave --algorithm all --noise backend --report routing-comparison.json
+# A, B, original C, simulation-assisted C, and D on all three processors:
+uv run qweave --algorithm all --noise backend --mc-training-shots 3072 --report routing-comparison.json
 # SABRE alone, including all three measurement circuit drawings:
 uv run qweave --algorithm sabre --processor hyperbolic_inspired --noise backend --show-circuit
 ```
 
-The CLI default is `--algorithm all`; the Python builder defaults to `shortest_path`. `qweave.routing` contains the
+The CLI default is `--algorithm all`; with backend noise this includes
+simulation-assisted C. Without backend noise, `all` runs A/B/C/D. The Python
+builder defaults to `shortest_path`. `qweave.routing` contains the
 strategy registry and a common routing interface. Shortest path moves the second
 CX operand towards the first using a deterministic shortest path. SABRE uses
 Qiskit's [SabreSwap](https://quantum.cloud.ibm.com/docs/en/api/qiskit/qiskit.transpiler.passes.SabreSwap)
@@ -332,6 +334,47 @@ Each outward SWAP is charged **once**. It prepares `H(R); CX(R,N)` locally and
 transports the entangled partner to D. No zero-state prepositioning is emitted.
 The generic unknown-input `route_circuit` API retains its original round-trip
 routing costs; the Bell-specific builder uses the audited one-way objective.
+
+### Simulation-assisted C
+
+Original C remains the weighted route described above. The optional
+`noise_aware_mc` algorithm enumerates at most six fixed-port Bell routes:
+the shortest route, the weighted C route, and short alternatives. It compiles
+all candidates with the same backend and settings. Equal noisy training-shot
+budgets select the route with the highest measured Bell fidelity, breaking
+exact ties by compiled native gate cost and path. Independent held-out seeds
+then compare the selected route with A, SABRE and production C. Training counts
+are excluded from held-out fidelity and confidence intervals. Selection
+requires extra classical compilation and noisy simulation, both reported as
+optimization costs. It does not train an RL policy or imply improved hardware
+performance. It appears as a separate C-MC row in the final CLI summary.
+
+```sh
+OMP_NUM_THREADS=2 uv run qweave --processor all --algorithm all --noise backend \
+  --mc-training-shots 3072 --shots 3072 --report comparison.json > out.log
+```
+
+The ordinary CLI report records candidate paths, training counts and selection
+timing inside C-MC's routing record. Its final XX/YY/ZZ measurements use the
+same attempted-shot budget and pipeline as every other row. Training seeds are
+separate from the final simulator seed. The standalone comparison script also
+uses this package selector when an independent held-out difference interval is
+needed; original C remains available for direct comparison.
+
+In an earlier standalone hyperbolic run (backend fingerprint
+`af013a8cd73da06768e75774e86f355895c5c3f559276a1bb7e2c277eb41864c`),
+six candidates each received 3,072 training shots. Training selected the
+shortest route `5→2→1→0→25→27→31`. Independent 8,192-shot evaluations measured
+91.87% fidelity for the selected route, 89.95% for weighted C, and 93.72% for
+SABRE. The selected-minus-C estimate was +1.92 percentage points, with a
+conservative pointwise 95% interval of [-1.75, +5.58] points. Against SABRE it
+was -1.85 points, interval [-5.13, +1.44]. Both intervals include zero.
+The selected route is exactly A's circuit; its separate held-out A estimate
+was 91.14%, with the difference caused by independent finite-shot samples.
+Compilation took 8.86 seconds; training used 18,432 attempted shots and
+32.17 seconds of simulation. These timings are local measurements. The
+dependency-duration metric in candidate records is derived from native gate
+durations and qubit ordering; it is not a scheduled idle-noise simulation.
 
 Node/edge insertion and neighbor iteration are sorted for reproducible Dijkstra
 ties. Candidate ties use cost, then SWAP count, then the returned transport node

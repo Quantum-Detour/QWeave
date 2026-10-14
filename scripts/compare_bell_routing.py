@@ -27,6 +27,51 @@ from qweave.bell_routing import simplify_zero_input_movement
 METHODS = ('noise_aware', 'qmrp')
 
 
+def simulation_assisted_c(processor_name, training_shots, validation_shots, master_seed):
+    """Use the package's C-MC selector, then independently evaluate its route."""
+    bed = FakeBackendTestbed.for_processor(processor_name, backend_seed=1234, compiler_seed=42)
+    processor = bed.processor(PROCESSOR_CONFIGS[processor_name].output_ports, name=processor_name)
+    costs = BackendOperationCosts(bed)
+    methods = {'A shortest':'shortest_path', 'B SABRE':'sabre',
+               'C weighted':'noise_aware', 'C simulation assisted':'noise_aware_mc'}
+    built = {label:build_bell_circuit(processor,measure=False,algorithm=algorithm,
+                                     seed=master_seed if algorithm == 'noise_aware_mc' else 42,
+                                     costs=costs,training_shots=training_shots)
+             for label,algorithm in methods.items()}
+    decision = built['C simulation assisted'].routing.cost_decisions[0]
+    final_circuits = {label:prepare_bell_measurements(item.circuit,processor.output_ports,testbed=bed)
+                      for label,item in built.items()}
+    seeds = [int(child.generate_state(1)[0]) % (2**32-3)
+             for child in np.random.SeedSequence([master_seed,0xE0A1]).spawn(len(methods))]
+    training_seeds = [row['seed'] for row in decision['training']]
+    if len({seed+i for seed in (*seeds,*training_seeds) for i in range(len(BASES))}) != 3*(len(seeds)+len(training_seeds)):
+        raise ValueError('Training and held-out simulator seeds overlap')
+    held_out = {}
+    for index,name in enumerate(methods):
+        begun = perf_counter()
+        result = sample_bell_measurements(final_circuits[name],shots=validation_shots,
+                    seed=seeds[index],testbed=bed,backend_noise=True)
+        held_out[name] = dict(seed=result.seed,fidelity=result.fidelity,
+                             counts=result.counts,shots_by_basis=result.shots_by_basis,
+                             seconds=perf_counter()-begun,
+                             native_circuit_hashes={basis:native_record(c)['sha256']
+                                                    for basis,c in final_circuits[name].items()})
+    selected = held_out['C simulation assisted']
+    differences = {name:fidelity_difference(held_out[name]['counts'],selected['counts'])
+                   for name in ('C weighted','B SABRE','A shortest')}
+    report = dict(processor=processor_name,ports=processor.output_ports,
+                  backend=asdict(bed.snapshot), selection_rule=decision['selection_rule'],
+                  candidate_set=decision['candidate_set'],
+                  training_shots_per_candidate=training_shots,validation_shots_per_arm=validation_shots,
+                  master_seed=master_seed,training=decision['training'],selected_path=decision['selected_path'],
+                  held_out=held_out,selected_minus_reference=differences,
+                  optimization_cost=dict(compilation_seconds=decision['candidate_compilation_seconds'],
+                                         training_simulation_seconds=decision['training_simulation_seconds'],
+                                         training_attempted_shots=decision['training_attempted_shots']),
+                  uncertainty_scope='pointwise 95% sampling intervals for fixed selected route; no calibration or model uncertainty')
+    print(json.dumps(report,allow_nan=False),flush=True)
+
+
 def hyperbolic_route_audit(*, sample=False, batches=8, shots=24576):
     """Frozen old/new routes; no route search and no noise-model changes.
 
@@ -279,10 +324,21 @@ def main():
                       help='Read completed saved batches; never compile or simulate')
     mode.add_argument('--hyperbolic-route-audit', action='store_true',
                       help='Compile frozen old/new hyperbolic routes; no files created')
+    mode.add_argument('--simulation-assisted-c', action='store_true',
+                      help='Select C with noisy training samples, then compare with independent held-out shots')
+    parser.add_argument('--processor',choices=tuple(COMPARISON_PROCESSORS),default='hyperbolic_inspired')
+    parser.add_argument('--training-shots',type=int,default=3072)
+    parser.add_argument('--validation-shots',type=int,default=24576)
+    parser.add_argument('--master-seed',type=int,default=20261015)
     parser.add_argument('--sample', action='store_true', help='Also sample the hyperbolic route audit')
     args=parser.parse_args()
     if args.sample and not args.hyperbolic_route_audit:
         parser.error('--sample requires --hyperbolic-route-audit')
+    if args.simulation_assisted_c:
+        if min(args.training_shots,args.validation_shots) < 3 or not 0 <= args.master_seed < 2**32:
+            parser.error('Training/validation shots must be at least 3 and master seed must fit uint32')
+        simulation_assisted_c(args.processor,args.training_shots,args.validation_shots,args.master_seed)
+        return
     if args.hyperbolic_route_audit:
         if args.batches < 2 or args.shots_per_batch < 3 or args.shots_per_batch % 3:
             parser.error('Use at least two batches and a positive shot budget divisible by three')

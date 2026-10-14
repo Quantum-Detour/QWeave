@@ -34,6 +34,7 @@ def build_bell_circuit(
     processor: str | Processor, *, measure: bool = True,
     algorithm: str = "shortest_path", seed: int = 42,
     costs: BackendOperationCosts | None = None,
+    training_shots: int = 3072,
 ) -> BellCircuit:
     """Prepare a Bell pair from all-zero inputs at fixed physical output ports.
 
@@ -54,7 +55,8 @@ def build_bell_circuit(
 
     logical = QuantumCircuit(processor.num_qubits, name=f"bell_{processor.name}")
     logical.compose(build_ideal_bell_circuit(measure=False), qubits=processor.output_ports, inplace=True)
-    circuit, routing = route_bell_preparation(logical, processor, algorithm=algorithm, seed=seed, costs=costs)
+    circuit, routing = route_bell_preparation(logical, processor, algorithm=algorithm, seed=seed,
+                                              costs=costs, training_shots=training_shots)
     if measure:
         from .measurements import build_bell_measurement_circuits
         circuit = build_bell_measurement_circuits(circuit, processor.output_ports)["ZZ"]

@@ -2,7 +2,7 @@
 
 Compare four quantum routing methods across three processor models, then explore their results through a Quantum Packet Tracer and research dashboard. Detailed explanations are in [qmrp-project-overview.md](qmrp-project-overview.md).
 
-**Current progress:** A/B/C and the Bell-specific QMRP transform share backend costs, native compilation settings, simulation, measurement analysis, and reporting. The new `five_node_multipath` uses the custom five-edge cycle with fixed ports (0,4); the original `five_node` tree remains unchanged. IBM uses FakeSherbrooke and the custom/lattice graphs use seeded GenericBackendV2 properties. The audited all-zero Bell builder eliminates zero-state prepositioning fairly across methods. QMRP charges local encoding, one-way ancilla movement, disjoint transport, and decoding, and reports accepted-only plus unpostselected fidelity from the same samples. Infeasible cases use a labeled unprotected fallback without an additional experiment. The original tree is excluded from the default three-processor comparison. Maximum optimization preserves protection phase boundaries. Organizer confirmation, arbitrary-circuit protection, systematic noise/distance sweeps, and dashboard replay remain pending.
+**Current progress:** A/B/C, experimental simulation-assisted C, and the Bell-specific QMRP transform share backend properties, native compilation settings, simulation, measurement analysis, and reporting. The new `five_node_multipath` uses the custom five-edge cycle with fixed ports (0,4); the original `five_node` tree remains unchanged. IBM uses FakeSherbrooke and the custom/lattice graphs use seeded GenericBackendV2 properties. The audited all-zero Bell builder eliminates zero-state prepositioning fairly across methods. QMRP charges local encoding, one-way ancilla movement, disjoint transport, and decoding, and reports accepted-only plus unpostselected fidelity from the same samples. Infeasible cases use a labeled unprotected fallback without an additional experiment. The original tree is excluded from the default three-processor comparison. Maximum optimization preserves protection phase boundaries. Organizer confirmation, arbitrary-circuit protection, systematic noise/distance sweeps, and dashboard replay remain pending.
 
 ## 1. Topologies and Bell baseline
 
@@ -29,6 +29,7 @@ Compare four quantum routing methods across three processor models, then explore
 - [x] Verify noiseless correctness across all methods, single-X detection, undetected Z/double-X errors, and independent-X analytical acceptance/fidelity.
 
 - [x] Audit all-zero Bell movement across A/B/C/D; remove initial zero-state permutations and score one-way transport while preserving fixed output ports.
+- [x] Add simulation-assisted C to the main Bell CLI as a separate C-MC row alongside original C; use bounded routes, equal noisy training budgets, and the shared final measurement/report pipeline.
 - [x] Compare the old and current hyperbolic C/QMRP routes after the same movement simplification; record estimated costs, compiled native costs, gate counts, depths, and encoding/decoding cost components.
 
 ## 3. Noisy comparison and research
@@ -43,6 +44,7 @@ Compare four quantum routing methods across three processor models, then explore
 - [ ] Systematically sweep depolarizing noise and relaxation across all routing methods.
 - [x] Report fidelity and uncertainty, depth, native two-qubit gates, SWAPs, active physical qubits, routing runtime, accepted/discarded shots and multipath coverage for Bell experiments.
 - [ ] Sample the old and current simplified hyperbolic routes with fixed backend noise and independent seeds; report fidelity differences, 95% intervals, QMRP acceptance, and unfiltered fidelity. The compilation audit alone cannot establish which route performs better.
+- [x] Run the hyperbolic simulation-assisted C study with six candidates, independent held-out shots, 95% difference intervals, and training shot/runtime cost. The observed gain over current C was inconclusive and it did not beat SABRE in the held-out point estimates; repeat on other processors and with larger budgets before claiming a general advantage.
 - [ ] Complete the frozen multi-seed C versus QMRP comparison across all three processors and report 95% difference intervals; the earlier partial artifacts were removed at the user's request.
 - [ ] Sweep noise and port distance to find where QMRP helps or hurts; compare with all baselines and encoded execution without postselection.
 - [x] Export schema-4 configurations, seeds, versions, joint/accepted counts, paths and protection phase/placement records.

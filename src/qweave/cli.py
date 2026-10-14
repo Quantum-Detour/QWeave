@@ -69,6 +69,48 @@ def _result_record(result: BellMeasurementResult) -> dict:
     }
 
 
+def _print_final_summary(rows: list[dict], *, noise: str) -> None:
+    """Summarize the circuits and samples just executed by the CLI."""
+    if not rows:
+        return
+    processor_labels = {
+        "five_node_multipath": "Five-node",
+        "five_node": "Five-node tree",
+        "ibm_heavy_hex": "IBM",
+        "hyperbolic_inspired": "Hyperbolic",
+    }
+    algorithm_labels = {
+        "shortest_path": "A: Shortest path",
+        "sabre": "B: SABRE",
+        "noise_aware": "C: Noise-aware",
+        "noise_aware_mc": "C-MC: Simulation-assisted",
+        "qmrp": "D: QMRP",
+    }
+    print(f"\nFinal summary ({'backend noise' if noise == 'backend' else 'noiseless'}; ZZ circuit metrics)")
+    print("| Processor | Algorithm | Fidelity | SWAPs | Native 2-qubit gates | Depth | Accepted |")
+    print("|---|---|---:|---:|---:|---:|---:|")
+    best_by_processor = {
+        processor: max((row["fidelity"] for row in rows
+                        if row["processor"] == processor and row["fidelity"] is not None),
+                       default=None)
+        for processor in {row["processor"] for row in rows}
+    }
+    previous_processor = None
+    for row in rows:
+        processor = row["processor"]
+        label = processor_labels.get(processor, processor) if processor != previous_processor else ""
+        fidelity = row["fidelity"]
+        displayed_fidelity = "undefined" if fidelity is None else f"{fidelity:.4f}"
+        if (fidelity is not None and best_by_processor[processor] is not None
+                and isclose(fidelity, best_by_processor[processor], abs_tol=1e-12, rel_tol=0)):
+            displayed_fidelity = f"**{displayed_fidelity}**"
+        print(f"| {label} | {algorithm_labels[row['algorithm']]} | {displayed_fidelity} | "
+              f"{row['swaps']} | {row['native_two_qubit_gates']} | {row['depth']} | "
+              f"{row['accepted'] / row['attempted']:.2%} |")
+        previous_processor = processor
+    print("Fidelity uses accepted XX/YY/ZZ shots; each row uses its own attempted-shot budget.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify and compare Bell baselines")
     parser.add_argument("--processor", choices=("all", *PROCESSOR_CONFIGS), default="all",
@@ -80,6 +122,8 @@ def main() -> None:
     parser.add_argument("--noise", choices=("none", "backend"), default="none", help="backend uses FakeSherbrooke for IBM and seeded GenericBackendV2 for custom graphs")
     parser.add_argument("--backend-seed", type=int, default=1234, help="Seed for synthetic backend properties, independent of shot sampling (default: 1234)")
     parser.add_argument("--optimization", choices=tuple(level.name.lower() for level in OptimizationLevel), default=OptimizationLevel.MAXIMUM.name.lower(), help="Shared native optimization preset (default: maximum, Qiskit level 3)")
+    parser.add_argument("--mc-training-shots", type=int, default=3072,
+                        help="Noisy training shots per candidate for simulation-assisted C (default: 3072)")
     parser.add_argument("--report", type=Path, help="Save configuration, snapshot identity, counts, metrics, and executed QASM circuits as JSON")
     args = parser.parse_args()
     if args.shots < 3:
@@ -88,9 +132,17 @@ def main() -> None:
         parser.error("--seed must be between 0 and 2**32 - 3")
     if args.backend_seed < 0:
         parser.error("--backend-seed must be nonnegative")
+    if args.mc_training_shots < 3:
+        parser.error("--mc-training-shots must be at least 3")
+    if args.algorithm == "noise_aware_mc" and args.noise != "backend":
+        parser.error("simulation-assisted C requires --noise backend for route selection and evaluation")
     names = COMPARISON_PROCESSORS if args.processor == "all" else (args.processor,)
-    algorithms = tuple(ROUTERS) if args.algorithm == "all" else (args.algorithm,)
+    all_algorithms = ("shortest_path", "sabre", "noise_aware", "noise_aware_mc", "qmrp")
+    algorithms = (tuple(method for method in all_algorithms
+                        if args.noise == "backend" or method != "noise_aware_mc")
+                  if args.algorithm == "all" else (args.algorithm,))
     records = []
+    summary_rows = []
     failed = False
     for name in names:
         testbed = FakeBackendTestbed.for_processor(
@@ -105,9 +157,10 @@ def main() -> None:
         print(f"  SHA256: {testbed.snapshot.snapshot_sha256}")
         print(f"  native compilation: fixed physical placement, optimization {testbed.snapshot.optimization_name} (level {int(testbed.snapshot.optimization_level)}); no rerouting or mitigation")
         processor = testbed.processor(PROCESSOR_CONFIGS[name].output_ports, name=name)
-        costs = BackendOperationCosts(testbed) if set(algorithms) & {"noise_aware", "qmrp"} else None
+        costs = BackendOperationCosts(testbed) if set(algorithms) & {"noise_aware", "noise_aware_mc", "qmrp"} else None
         for algorithm in algorithms:
-            built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=args.seed, costs=costs)
+            built = build_bell_circuit(processor, measure=False, algorithm=algorithm, seed=args.seed,
+                                      costs=costs, training_shots=args.mc_training_shots)
             print(f"{name} / {algorithm}: {built.processor.num_qubits} sites, ports {built.processor.output_ports}")
             print(f"  graph source: {PROCESSOR_CONFIGS[name].provenance}")
             if PROCESSOR_CONFIGS[name].topology_metadata:
@@ -116,6 +169,13 @@ def main() -> None:
             if built.routing.cost_model:
                 print(f"  estimated routing cost (not fidelity): {built.routing.estimated_routing_cost:.8f}")
                 print(f"  cost preparation: {built.routing.cost_preparation_seconds:.3f}s; routing: {built.routing.runtime_seconds:.3f}s")
+            if algorithm == "noise_aware_mc":
+                selection = built.routing.cost_decisions[0]
+                print(f"  selected path: {' -> '.join(map(str, selection['selected_path']))}")
+                print(f"  route search: {len(selection['training'])} candidates; "
+                      f"{selection['training_attempted_shots']} training shots; "
+                      f"compilation {selection['candidate_compilation_seconds']:.3f}s; "
+                      f"simulation {selection['training_simulation_seconds']:.3f}s")
             print(f"  routing SWAPs: {built.routing.routing_swaps}")
             print(f"  restoration SWAPs (output or encoding workspace): {built.routing.restoration_swaps}")
             print(f"  SWAPs before decomposition: {built.circuit.count_ops().get('swap', 0)}")
@@ -156,7 +216,9 @@ def main() -> None:
             if built.routing.cost_model:
                 cost_audit = {
                     'routing_estimate': built.routing.estimated_routing_cost,
-                    'estimate_scope': 'sum of separately compiled CX/SWAP costs; includes QMRP encoding and decoding; excludes H, basis rotations and readout',
+                    'estimate_scope': ('compiled native preparation gate-error proxy; route selected by separate noisy training shots'
+                        if algorithm == 'noise_aware_mc' else
+                        'sum of separately compiled CX/SWAP costs; includes QMRP encoding and decoding; excludes H, basis rotations and readout'),
                     'preparation': costs.native_cost_record(native),
                     'measurements': {basis: costs.native_cost_record(circuit)
                                      for basis, circuit in prepared.items()},
@@ -181,6 +243,20 @@ def main() -> None:
                 print(f"  {basis} backend native gates: {dict(measured.count_ops())}; depth: {measured.depth()}")
                 if args.show_circuit:
                     print(measured.draw(output="text", fold=100, idle_wires=False))
+            measured_result = noisy if noisy is not None else result
+            zz_circuit = measured_result.circuits["ZZ"]
+            summary_rows.append({
+                "processor": name, "algorithm": algorithm,
+                "fidelity": measured_result.fidelity,
+                "swaps": int(built.circuit.count_ops().get("swap", 0)),
+                "native_two_qubit_gates": sum(
+                    len(item.qubits) == 2 and item.operation.name != "barrier"
+                    for item in zz_circuit.data
+                ),
+                "depth": zz_circuit.depth(),
+                "accepted": sum(measured_result.accepted_by_basis.values()),
+                "attempted": sum(measured_result.shots_by_basis.values()),
+            })
             if args.report:
                 records.append({
                     "algorithm": ALGORITHM_IDS[algorithm],
@@ -201,5 +277,6 @@ def main() -> None:
     if args.report:
         args.report.write_text(json.dumps({"schema_version": 4, "runs": records}, indent=2) + "\n")
         print(f"Saved report: {args.report}")
+    _print_final_summary(summary_rows, noise=args.noise)
     if failed:
         raise SystemExit(1)

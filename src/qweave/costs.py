@@ -69,9 +69,15 @@ class BackendOperationCosts:
         """
         gates = []
         readout = []
+        qubit_ready = [0.0] * circuit.num_qubits
         for item in circuit.data:
             name = item.operation.name
             if name == 'barrier':
+                sites = [circuit.find_bit(q).index for q in item.qubits]
+                if sites:
+                    synchronized = max(qubit_ready[site] for site in sites)
+                    for site in sites:
+                        qubit_ready[site] = synchronized
                 continue
             qubits = tuple(circuit.find_bit(q).index for q in item.qubits)
             props = self.testbed.target[name].get(qubits)
@@ -81,8 +87,15 @@ class BackendOperationCosts:
             record = NativeGateCost(name, qubits, float(error),
                                     inf if error == 1 else -log1p(-error))
             (readout if name == 'measure' else gates).append(record)
+            duration = props.duration
+            if duration is None or not isfinite(duration) or duration < 0:
+                raise ValueError(f'Missing or invalid gate duration for {name}{qubits}: {duration}')
+            finish = (max(qubit_ready[site] for site in qubits) if qubits else 0.0) + duration
+            for site in qubits:
+                qubit_ready[site] = finish
         return dict(gate_cost=sum(g.cost for g in gates),
                     readout_cost=sum(g.cost for g in readout),
+                    dependency_duration_seconds=max(qubit_ready, default=0.0),
                     native_gates=[asdict(g) for g in gates],
                     readout=[asdict(g) for g in readout],
                     gates=dict(circuit.count_ops()), depth=circuit.depth(),
