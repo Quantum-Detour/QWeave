@@ -73,6 +73,12 @@ PROCESSOR_CONFIGS = {
         edges=((0, 1), (1, 2), (1, 3), (3, 4)),
         provenance="Provisional branching-tree interpretation of the challenge overview.",
     ),
+    "five_node_multipath": ProcessorConfig(
+        backend_kind="generic", output_ports=(0, 4), num_qubits=5,
+        edges=((0, 1), (1, 2), (2, 3), (3, 4), (4, 1)),
+        provenance=("Custom five-qubit topology chosen to enable multipath; "
+                    "not a confirmed organizer reference. Original tree retained as five_node."),
+    ),
     "ibm_heavy_hex": ProcessorConfig(
         backend_kind="sherbrooke", output_ports=(0, 15),
         provenance="FakeSherbrooke from the supplied transpilation notebook; ports remain provisional.",
@@ -80,6 +86,9 @@ PROCESSOR_CONFIGS = {
     "hyperbolic_inspired": _hyperbolic_config(),
 }
 
+
+# The original tree remains available only by explicit selection.
+COMPARISON_PROCESSORS = ("five_node_multipath", "ibm_heavy_hex", "hyperbolic_inspired")
 
 @lru_cache(maxsize=None)
 def get_processor(name: str) -> Processor:

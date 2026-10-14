@@ -2494,6 +2494,7 @@ dependencies = [
     { name = "qiskit" },
     { name = "qiskit-aer" },
     { name = "qiskit-ibm-runtime" },
+    { name = "scipy" },
 ]
 
 [package.metadata]
@@ -2505,6 +2506,7 @@ requires-dist = [
     { name = "qiskit", specifier = ">=2.5.2" },
     { name = "qiskit-aer", specifier = ">=0.17.2" },
     { name = "qiskit-ibm-runtime", specifier = ">=0.50.0" },
+    { name = "scipy", specifier = ">=1.18.1" },
 ]
 
 [[package]]

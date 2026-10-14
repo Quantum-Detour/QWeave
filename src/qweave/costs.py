@@ -61,6 +61,33 @@ class BackendOperationCosts:
         if processor.num_qubits != backend.num_qubits or edges != {tuple(sorted(e)) for e in processor.edges}:
             raise ValueError("Routing costs and processor must use the same backend connectivity")
 
+    def native_cost_record(self, circuit: QuantumCircuit) -> dict:
+        """Score the executed decomposition without compiling or simulating.
+
+        Gate and readout proxies are separate. Neither predicts fidelity;
+        target gate errors also do not fully describe the Aer noise channels.
+        """
+        gates = []
+        readout = []
+        for item in circuit.data:
+            name = item.operation.name
+            if name == 'barrier':
+                continue
+            qubits = tuple(circuit.find_bit(q).index for q in item.qubits)
+            props = self.testbed.target[name].get(qubits)
+            error = props.error if props is not None else None
+            if error is None or not isfinite(error) or not 0 <= error <= 1:
+                raise ValueError(f'Missing or invalid gate error for {name}{qubits}: {error}')
+            record = NativeGateCost(name, qubits, float(error),
+                                    inf if error == 1 else -log1p(-error))
+            (readout if name == 'measure' else gates).append(record)
+        return dict(gate_cost=sum(g.cost for g in gates),
+                    readout_cost=sum(g.cost for g in readout),
+                    native_gates=[asdict(g) for g in gates],
+                    readout=[asdict(g) for g in readout],
+                    gates=dict(circuit.count_ops()), depth=circuit.depth(),
+                    native_two_qubit_gates=sum(len(g.qubits) == 2 for g in gates))
+
     def operation(self, name: str, source: int, destination: int) -> OperationCost:
         if name not in {"cx", "swap"}:
             raise ValueError("Routing costs support only CX and SWAP")

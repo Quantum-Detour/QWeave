@@ -6,16 +6,24 @@ in [qmrp-todo.md](qmrp-todo.md).
 
 ## First circuit scaffold
 
-The `src/qweave` package builds a Bell pair at two fixed physical output ports
-on each of three processor graphs. All three routing methods receive the same H + CX
-logical preparation, initially placed at those ports. They insert adjacent SWAPs
-to make the CX executable; a shared restoration step returns all logical qubits
-to their original sites before measurements. The circuit builder can include
-terminal measurements or return an unmeasured circuit for analysis.
+The `src/qweave` package compares shortest path, SABRE, noise-aware routing,
+and QMRP Bell preparation. The main multipath suite uses the custom five-node,
+IBM, and hyperbolic graphs; the original five-node tree remains a separate
+archived reference. `--processor all` runs only the custom five-node, IBM, and
+hyperbolic configurations. The tree is available only through explicit
+`--processor five_node` selection.
+
+All methods prepare the Bell state from all-zero physical inputs and return it
+to the same output ports. Zero workspace identities are unrestricted. A/C prepare
+locally and transport outward; SABRE's initial product-state permutations are
+simplified under the same zero-input assumption. QMRP prepares and encodes locally,
+then moves encoded components outward. The general `route_circuit` interface still
+preserves arbitrary-input wire semantics and performs full restoration.
 
 | Processor ID | Sites | Provisional ports | Graph source |
 | --- | ---: | --- | --- |
-| `five_node` | 5 | 0, 4 | Branching-tree interpretation of the challenge overview |
+| `five_node` | 5 | 0, 4 | Preserved original provisional branching tree |
+| `five_node_multipath` | 5 | 0, 4 | Custom cycle with reference leaf; chosen to enable multipath, not organizer-confirmed |
 | `ibm_heavy_hex` | 127 | 0, 15 | `FakeSherbrooke`, matching the supplied transpilation notebook |
 | `hyperbolic_inspired` | 85 | 5, 31 | Frozen HYPERTILING `{7,3}` cell-adjacency graph, SRS kernel, four layers |
 
@@ -26,12 +34,12 @@ custom backends use bidirectional CX on every configured graph edge. The IBM
 backend supplies its own native gate directions and calibrations. Both noiseless
 and noisy CLI runs compile to the selected backend's native target. The builder
 retains explicit SWAPs; executed circuits contain their native decomposition.
-The current circuit is an unprotected baseline.
+A/B/C are unprotected; QMRP uses syndrome postselection when routing is feasible.
 
 The IBM model previously used the 16-site Guadalupe graph. It now uses the
 127-site Sherbrooke graph; earlier results represent a different hardware model.
 
-Install the locked environment and inspect all three circuits:
+Install the locked environment and inspect the circuits:
 
 ```sh
 uv sync
@@ -65,10 +73,9 @@ uv run qweave --shots 3072 --seed 42
 `--shots` is the total budget **per algorithm per processor per noise setting**, shared evenly across XX, YY,
 and ZZ; remainder shots go to XX and then YY. The default is 1,024 shots per
 basis. Each basis uses seed + its index (0, 1, 2). The simulator uses Aer's
-matrix product state method without a bond-dimension cap. Every shot
-is retained, with no postselection. The measured estimate is not clipped or
+matrix product state method without a bond-dimension cap. A/B/C retain every shot. QMRP accepts only shots with all syndrome bits zero. The measured estimate is not clipped or
 given the exact-state PASS threshold: general states have sampling variation.
-Noisy runs also retain all shots and report 100% acceptance with zero discards.
+Protected runs report accepted and discarded shots separately; a passed check does not imply an error-free state.
 
 ## Noisy baseline
 
@@ -78,17 +85,17 @@ Both modes use the selected backend's native gates and fixed physical placement.
 
 Each comparison arm receives the full requested shot budget: 3,072 shots means
 6,144 total attempts per algorithm per processor with `--noise backend`. Both arms share the
-same native circuits and seed schedule. There is no protection or postselection.
+same native circuits and seed schedule. Postselection applies only to protected QMRP execution.
 `--show-circuit` displays executed native instructions; simulator noise is not
 drawn as additional gates.
 
-## Backend-derived noise on all three graphs
+## Backend-derived noise on all graphs
 
 `--noise backend` now selects a backend appropriate to each processor:
 
 | Processor | Backend | Source of noise properties |
 | --- | --- | --- |
-| `five_node` | `GenericBackendV2` on the current five-node graph | Seeded synthetic properties |
+| `five_node`, `five_node_multipath` | Separate `GenericBackendV2` instances on their respective graphs | Seeded synthetic properties |
 | `ibm_heavy_hex` | `FakeSherbrooke` from the supplied notebook | Packaged calibration snapshot |
 | `hyperbolic_inspired` | `GenericBackendV2` on the frozen HYPERTILING graph | Seeded synthetic properties |
 
@@ -247,7 +254,7 @@ exceed the exact-verification resource limit.
 ## Shortest path, SABRE, and noise-aware routing
 
 ```sh
-# All three methods, same backend instance and properties for each processor:
+# All four methods, same backend instance and properties for each processor:
 uv run qweave --algorithm all --noise backend --report routing-comparison.json
 # SABRE alone, including all three measurement circuit drawings:
 uv run qweave --algorithm sabre --processor hyperbolic_inspired --noise backend --show-circuit
@@ -258,32 +265,32 @@ strategy registry and a common routing interface. Shortest path moves the second
 CX operand towards the first using a deterministic shortest path. SABRE uses
 Qiskit's [SabreSwap](https://quantum.cloud.ibm.com/docs/en/api/qiskit/qiskit.transpiler.passes.SabreSwap)
 with `heuristic="decay"`, `trials=1`, and `seed=--seed`. There is no SABRE layout
-search: all methods start at exactly the same physical sites. The seed and
+search. All methods receive the same all-zero input state and fixed output ports. The seed and
 explicit trial count make the SABRE settings reproducible with locked versions.
 All routers use the same physical adjacency; the common native
 compiler then enforces the backend's actual gate directions.
 
-Common code handles logical preparation, placement restoration, backend-native
+All methods share the zero-input movement simplifier, backend-native
 compilation at the selected optimization level, exact verification, XX/YY/ZZ basis changes, simulation,
 noise, uncertainty, and reporting. Each processor's backend is constructed once
 and reused across methods. Measurement circuits are compiled once per method
 and reused unchanged in the noiseless and noisy arms. Shot budgets and sampling
 seeds match between methods; their routed gate sequences can differ.
 
-**Fixed-port policy:** routing may move either logical qubit. After routing, the
-shared wrapper reverses the sequence of inserted SWAPs to restore the complete
-initial placement. Restoration gates receive noise and count towards gate cost
-and depth. This simple policy is reproducible but not a minimum-cost placement
-restoration algorithm. It is part of the benchmark definition for all methods.
+**Audited fixed-output policy:** only the physical Bell output ports must match.
+Initial permutations of zero states need no physical gates. Shortest path uses
+`d - 1` outward SWAPs for distance `d`. Noise-aware routing minimizes a local CX
+plus one-way SWAP costs. SABRE still chooses the meeting sites, but initial
+SWAPs are eliminated by moving its pending H to the meeting site. All remaining
+SWAPs carry actual state toward the outputs; they are not deleted merely because
+the older router called them restoration. QMRP receives the same simplification.
 
-**Baseline change:** the old Bell-specific shortest-path circuit exploited
-initially zero workspace and used only outward transport. The new comparison
-routes the same logical H + CX workload for all methods, so shortest-path SWAP
-counts and noisy results change. For a port distance of d edges, shortest path
-now uses `d - 1` routing SWAPs plus `d - 1` restoration SWAPs. Do not mix earlier
-results with this `fixed-port-logical-bell-v2` benchmark.
+This benchmark is `zero-input-fixed-output-bell-v3`. It replaces the unnecessarily
+strict wire-identity policy used by earlier Bell runs. It is valid for all-zero
+state preparation, not arbitrary unknown inputs. The generic unitary router is
+unchanged. Old `fixed-port-logical-bell-v2` results are not directly comparable.
 
-JSON reports use schema version 3 and include the routing algorithm/settings,
+JSON reports use schema version 4 and include the routing algorithm/settings,
 initial/routed/final placements, routing and restoration SWAP lists, routing
 runtime (including restoration), and routed preparation QASM. The displayed
 shortest reference path is a graph diagnostic; SABRE's actual movement is its
@@ -319,14 +326,12 @@ and qubit pair. These are classical compilations: route selection runs no quantu
 shots and performs no noisy simulations. Keep the backend unchanged while using
 a cost provider; create a new provider for a different calibration/configuration.
 
-For each CX between current physical sites A and B, C tries each neighbor N of A.
-It uses NetworkX weighted Dijkstra to move B to N while excluding A. A transport
-edge `u -> v` costs twice the compiled `SWAP(u, v)` score, covering transport plus
-restoration. The common restoration code repeats the same ordered SWAP arguments
-in reverse sequence; it does not replace them with `SWAP(v, u)`. Add the directed
-`CX(A, N)` score and choose the cheapest candidate. A and C share placement
-tracking and gate emission; only path selection differs. For multiple CXs, this
-is a greedy per-interaction rule, not a global optimization of the full circuit.
+For Bell preparation at outputs R and D, C tries each neighbor N of R. It
+charges `CX(R,N)` plus the cheapest directed SWAP path from N to D, excluding R.
+Each outward SWAP is charged **once**. It prepares `H(R); CX(R,N)` locally and
+transports the entangled partner to D. No zero-state prepositioning is emitted.
+The generic unknown-input `route_circuit` API retains its original round-trip
+routing costs; the Bell-specific builder uses the audited one-way objective.
 
 Node/edge insertion and neighbor iteration are sorted for reproducible Dijkstra
 ties. Candidate ties use cost, then SWAP count, then the returned transport node
@@ -343,7 +348,7 @@ for measurements to preserve noise assumptions.
 
 Reports label this method **C** and record model `native-negative-log-gate-error-v2`,
 backend fingerprint and compiler settings, selected transport paths, CX/SWAP native-gate breakdowns,
-restoration costs, and estimated total routing cost. At higher optimization
+any restoration costs, and estimated total routing cost. At higher optimization
 levels the sum of isolated-operation costs generally differs from the full
 optimized circuit cost because gates can cancel across operation boundaries.
 Method C does not compile/simulate every candidate full circuit to rank paths. `runtime_seconds` excludes
@@ -428,3 +433,84 @@ Run the verification tests with:
 ```sh
 uv run python -m unittest discover -s tests -v
 ```
+
+## QMRP and the custom five-node graph
+
+The current movement audit is in [qmrp-movement-audit.md](qmrp-movement-audit.md).
+The current user-supplied log is summarized in [qmrp-results.md](qmrp-results.md).
+The separate multi-seed experiment was not completed; its generated artifacts were removed at the user’s request.
+
+```sh
+uv run qweave --processor five_node_multipath --algorithm all --noise backend --report comparison.json
+uv run qweave --processor five_node_multipath --algorithm qmrp --noise backend --show-circuit
+uv run qweave --processor five_node --algorithm qmrp --noise backend
+```
+
+The custom edges are `(0,1), (1,2), (2,3), (3,4), (4,1)`, with Bell ports
+`(0,4)`. This is a project-designed multipath example, **not a confirmed
+organizer reference**. The original tree is unchanged. A backend seed freezes
+properties within a topology; it does not make different graphs share identical
+edge errors. Reports retain the actual edges and backend fingerprint.
+
+For this custom graph the planner finds launches `(1,2)`, transport paths
+`1→4` and `2→3`, and decoding `CX(4,3)`. It prepares `H(0); CX(0,1)`
+and encodes with `CX(1,2)` directly. There is no initial `4→1` SWAP: both sites
+start at zero. Both outward SWAPs and every preparation/decoding gate receive
+noise. Paths are discovered, not hardcoded.
+
+On every graph, the same planner searches distinct launch/arrival sites using
+capacity-one node splitting and two-unit min-cost flow. It excludes the stationary
+reference and uses cached directed native CX/SWAP costs, including a local
+encoding CX and one-way transport of the ancilla component to its launch site. Flow costs are rounded to 1e-12, with hop count breaking ties;
+endpoint candidates are compared deterministically by their unrounded total cost.
+These are gate-error heuristics, not fidelity predictions. The initial H is common
+and omitted from the routing score. No quantum runs are used to select routes.
+
+The selected circuit is compiled at the same optimization setting as A/B/C.
+Barriers preserve QMRP preparation, encoding, transport, and decoding phases.
+All methods have a preparation-to-measurement barrier. Optimization is therefore
+allowed within these boundaries; protected operations cannot cancel across them.
+This intentional extra constraint for D is part of its reported overhead.
+
+QMRP measures the syndrome in Z before Bell basis rotations and accepts zero.
+Both accepted-only fidelity and the same execution without postselection are
+computed from the **same raw samples**. Each basis reports accepted/discarded
+counts and a 95% acceptance interval. Bell intervals use accepted sample sizes;
+if any basis has zero accepted shots, conditional fidelity and its interval are
+JSON `null` and printed as undefined. `without_postselection` still remains defined.
+
+A single X on either encoded component before an ideal decoder is rejected.
+Single Z and double X errors may pass; reference, preparation, decoding and
+readout faults also matter. No recovery, erasure correction, or guaranteed
+improvement is claimed. This is a literature-inspired on-chip adaptation, not a
+reproduction of the quantum-network aggregation or parallel-spin-chain protocols.
+
+When no pair is feasible, D reports `unprotected_fallback`, executes A, and has
+zero multipath coverage. No additional experiment is run. The original tree
+exercises this case only when explicitly selected.
+Simulator resource limits have a separate status and do not trigger a routing fallback.
+
+Schema 4 adds raw joint counts, acceptance rules, marginal results without
+postselection, syndrome diagnostics, paths, cost breakdowns, phase boundaries,
+wire-placement records, decoded logical placement, active qubit counts, and native two-qubit gate counts.
+The placement records describe SWAP permutations; while encoded, neither rail
+is an independent copy of the logical data. Multipath coverage counts protected
+transport blocks, not the fraction of all circuit gates protected. Shot-level
+playback and arbitrary uploaded circuits remain future work.
+
+### Module responsibilities
+
+- `routing.py`: general circuit routing and shared routing records.
+- `bell_routing.py`: all-zero Bell preparation and common movement simplification.
+- `protection.py`: QMRP planning, encoding, transport and decoding; used by the main CLI.
+- `measurements.py`: shared sampling, postselection and Bell measurement analysis.
+- `comparison.py`: confidence intervals for differences between methods.
+- `scripts/compare_bell_routing.py`: optional reproducible multi-seed experiment; uses the same package implementation.
+
+For a completed saved experiment, generate its table without running any simulation:
+
+```sh
+uv run python scripts/compare_bell_routing.py --summarize-only
+```
+
+This command requires a complete checkpoint. Ordinary CLI runs do not invoke the multi-seed script.

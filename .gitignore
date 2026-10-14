@@ -21,3 +21,4 @@ transpile-with-pass-managers.ipynb
 
 # log files
 *.log
+results

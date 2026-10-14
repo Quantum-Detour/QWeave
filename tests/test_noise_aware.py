@@ -37,23 +37,25 @@ def topology(edges, n=5, ports=(0, 4)):
 class WeightedRoutingTests(unittest.TestCase):
     def test_longer_cleaner_route_and_error_sensitivity(self):
         processor = topology(((0, 1), (1, 4), (0, 2), (2, 3), (3, 4)))
-        costs = ControlledCosts({("swap", 4, 1): 10.0})
+        costs = ControlledCosts({("swap", 1, 4): 10.0})
         with patch("qiskit_aer.AerSimulator.run", side_effect=AssertionError("Route selection must not execute")):
             chosen = build_bell_circuit(processor, measure=False, algorithm="noise_aware", costs=costs)
-        self.assertEqual(chosen.routing.routing_swaps, ((4, 3), (3, 2)))
-        self.assertEqual(chosen.routing.estimated_routing_cost, 5.0)
+        self.assertEqual(chosen.routing.routing_swaps, ((2, 3), (3, 4)))
+        self.assertEqual(chosen.routing.estimated_routing_cost, 3.0)
         self.assertAlmostEqual(bell_fidelity(chosen.circuit, processor.output_ports), 1)
         changed = build_bell_circuit(processor, measure=False, algorithm="noise_aware", costs=ControlledCosts())
-        self.assertEqual(changed.routing.routing_swaps, ((4, 1),))
+        self.assertEqual(changed.routing.routing_swaps, ((1, 4),))
 
     def test_ordered_costs_and_restoration_arguments(self):
         processor = topology(((0, 1), (1, 2)), n=3, ports=(0, 2))
         costs = ControlledCosts({("swap", 2, 1): 5, ("swap", 1, 2): 10, ("cx", 0, 1): 3})
         built = build_bell_circuit(processor, measure=False, algorithm="noise_aware", costs=costs)
         self.assertEqual(built.routing.estimated_routing_cost, 13)
-        self.assertEqual(built.routing.restoration_swaps, ((2, 1),))
+        self.assertEqual(built.routing.restoration_swaps, ())
+        self.assertEqual(built.routing.routing_swaps, ((1, 2),))
         decision = built.routing.cost_decisions[0]
-        self.assertEqual(decision["transport_swaps"], decision["restoration_swaps"])
+        self.assertEqual(decision["restoration_swaps"], [])
+        self.assertEqual(decision["transport_swaps"][0]["qubits"], (1, 2))
 
     def test_tree_equal_zero_adjacent_and_unavailable(self):
         tree = PROCESSORS["five_node"]
@@ -83,10 +85,10 @@ class WeightedRoutingTests(unittest.TestCase):
         processor = PROCESSORS["five_node"]
         a = build_bell_circuit(processor, measure=False)
         b = build_bell_circuit(processor, measure=False, algorithm="sabre")
-        self.assertEqual(a.routing.routing_swaps, ((4, 3), (3, 1)))
-        self.assertEqual(b.routing.routing_swaps, ((1, 0), (3, 4)))
+        self.assertEqual(a.routing.routing_swaps, ((1, 3), (3, 4)))
+        self.assertEqual(b.routing.routing_swaps, ((3, 4), (1, 0)))
         for built in (a, b):
-            self.assertEqual(built.routing.final_layout, tuple(range(5)))
+            self.assertEqual(tuple(built.routing.final_layout[p] for p in (0,4)), (0,4))
             self.assertAlmostEqual(bell_fidelity(built.circuit, (0, 4)), 1)
 
     def test_multiple_cx_tracks_placement(self):
@@ -138,7 +140,7 @@ class NativeCostTests(unittest.TestCase):
                 self.assertAlmostEqual(bell_fidelity(built.circuit, processor.output_ports), 1)
                 native = bed.compile(built.circuit)
                 self.assertAlmostEqual(bell_fidelity(native, processor.output_ports), 1)
-                self.assertEqual(built.routing.final_layout, tuple(range(processor.num_qubits)))
+                self.assertEqual(tuple(built.routing.final_layout[p] for p in processor.output_ports), processor.output_ports)
                 # Sum actual native errors, including the common H preparation.
                 native_cost = sum(-log1p(-bed.target[item.operation.name][tuple(native.find_bit(q).index for q in item.qubits)].error) for item in native.data)
                 h = QuantumCircuit(processor.num_qubits)

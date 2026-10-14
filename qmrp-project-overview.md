@@ -89,6 +89,23 @@ A tree has a unique path between any two distinct vertices. That does not prove 
 
 Hyperbolic geometry does not imply dense connectivity, guaranteed short alternative routes, or universal superiority. Finite boundaries and port selection matter. In optional topology-isolation studies, control graph size, degree or edge budget, native gates, and noise where practical, and disclose unmatched factors.
 
+### Implemented custom five-node multipath example
+
+Preserve the provisional tree as `five_node`. The main multipath comparison uses
+`five_node_multipath`, a custom graph with edges `(0,1), (1,2), (2,3), (3,4), (4,1)`
+and fixed ports `(0,4)`. This permits encoding at `(1,2)`, transport `1→4` and
+`2→3`, and decoding at `(4,3)`. From all-zero inputs, omit initial zero-state permutations; charge local Bell
+preparation, encoding, one-way transport and decoding. This graph was selected to enable multipath;
+it is **not a confirmed organizer reference**. Run all four methods on the same
+backend instance for each topology. The original tree remains archived and is excluded from the default comparison.
+Changing graphs also changes generated backend properties, even with the same seed.
+
+The Bell-only implementation allows routed encoding, assumes zero workspace,
+and records workspace permutations and exchanged encoded-component arrivals.
+It uses phase barriers with maximum native optimization and no rerouting. All
+methods share a preparation-to-measurement boundary. These extra phase constraints
+for D preserve the intended protection experiment and must accompany cost reports.
+
 ### Capacity constraints
 
 Split each eligible physical site into an in-node and out-node with capacity one. Use a two-unit flow between endpoint regions, with one unit per launch and arrival site. Remove occupied or reserved sites when required.
@@ -171,9 +188,9 @@ No-free-ancilla and no-feasible-route cases trigger the declared standard shorte
 
 Run all four noisy methods on all three topologies: twelve algorithm/topology combinations, with shared ideal references and noiseless correctness checks. D may be hybrid on some cases; report that plainly.
 
-For the required protected case on a topology where D inserts no checks, add a separately labeled feasible protection control, such as an ancilla-based Bell stabilizer check with routed interactions. An unprotected fallback does not satisfy the protected-case requirement by itself.
+The active suite uses the custom five-node, IBM, and hyperbolic graphs. Preserve the original tree for explicit selection only. Do not add a separate parity-control experiment when routing is infeasible; label the shortest-path fallback as unprotected.
 
-Use identical attempted-shot budgets, physical output requirements, initial mapping, gate/noise assumptions, and evaluation procedures within each comparison. Repeat stochastic compilation and sampling across recorded seeds. Keep optimizer settings comparable and document unavoidable differences.
+Use identical attempted-shot budgets, physical output requirements, input states, gate/noise assumptions, and evaluation procedures within each comparison. For the Bell state-preparation benchmark, every physical input is zero and zero-workspace identities may be reassigned; arbitrary-input routing retains its stricter placement requirements. Repeat stochastic compilation and sampling across recorded seeds. Keep optimizer settings comparable and document unavoidable differences.
 
 ### Bell metric
 

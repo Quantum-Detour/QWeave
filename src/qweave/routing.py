@@ -33,6 +33,8 @@ class RoutingInfo:
     cost_decisions: tuple[dict, ...] = ()
     placement_policy: str = "identity; restore all logical sites by reversing inserted SWAPs"
     benchmark: str = "fixed-port-logical-bell-v2"
+    protection: dict | None = None
+    movement_audit: dict | None = None
 
 
 def _route_with_selector(circuit: QuantumCircuit, select_path):
@@ -112,7 +114,9 @@ def _sabre(circuit: QuantumCircuit, processor: Processor, seed: int, costs=None)
 
 
 ROUTERS = {"shortest_path": _shortest_path, "sabre": _sabre, "noise_aware": _noise_aware}
-ALGORITHM_IDS = {"shortest_path": "A", "sabre": "B", "noise_aware": "C"}
+# QMRP is a Bell-specific protection transform, dispatched before generic routing.
+ROUTERS["qmrp"] = None
+ALGORITHM_IDS = {"shortest_path": "A", "sabre": "B", "noise_aware": "C", "qmrp": "D"}
 
 
 def route_circuit(
@@ -133,6 +137,9 @@ def route_circuit(
         raise ValueError("Routing requires a full-width circuit without classical bits")
     if any(item.operation.name not in {"h", "cx"} for item in circuit.data):
         raise ValueError("Current routing input supports only H and CX preparation gates")
+    if algorithm == "qmrp":
+        from .protection import route_qmrp_bell
+        return route_qmrp_bell(circuit, processor, seed=seed, costs=costs)
     graph = processor.graph()
     for item in circuit.data:
         if len(item.qubits) == 2:

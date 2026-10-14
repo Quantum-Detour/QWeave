@@ -3,10 +3,11 @@
 from dataclasses import dataclass
 
 import networkx as nx
-from qiskit import ClassicalRegister, QuantumCircuit
+from qiskit import QuantumCircuit
 
 from .processors import Processor, get_processor
-from .routing import RoutingInfo, route_circuit
+from .routing import RoutingInfo
+from .bell_routing import route_bell_preparation
 from .costs import BackendOperationCosts
 
 
@@ -34,7 +35,7 @@ def build_bell_circuit(
     algorithm: str = "shortest_path", seed: int = 42,
     costs: BackendOperationCosts | None = None,
 ) -> BellCircuit:
-    """Route one shared logical Bell preparation with fixed input/output ports.
+    """Prepare a Bell pair from all-zero inputs at fixed physical output ports.
 
     ``route`` is the deterministic shortest reference path, not SABRE's trace.
     Actual inserted/restoration SWAPs are recorded in ``routing``.
@@ -53,9 +54,8 @@ def build_bell_circuit(
 
     logical = QuantumCircuit(processor.num_qubits, name=f"bell_{processor.name}")
     logical.compose(build_ideal_bell_circuit(measure=False), qubits=processor.output_ports, inplace=True)
-    circuit, routing = route_circuit(logical, processor, algorithm=algorithm, seed=seed, costs=costs)
+    circuit, routing = route_bell_preparation(logical, processor, algorithm=algorithm, seed=seed, costs=costs)
     if measure:
-        circuit.add_register(ClassicalRegister(2, "bell"))
-        circuit.measure(port_a, 0)
-        circuit.measure(port_b, 1)
+        from .measurements import build_bell_measurement_circuits
+        circuit = build_bell_measurement_circuits(circuit, processor.output_ports)["ZZ"]
     return BellCircuit(processor=processor, route=route, circuit=circuit, routing=routing)
