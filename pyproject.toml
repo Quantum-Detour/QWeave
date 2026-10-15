@@ -4,6 +4,8 @@ version = "0.1.0"
 description = "Quantum multipath routing research platform"
 readme = "README.md"
 authors = [
+    { name = "Aaron Huang" },
+    { name = "Calvin Cheng" },
     { name = "Bhaskar Mahajan", email = "bhaskarmahajan98@gmail.com" }
 ]
 requires-python = ">=3.12"
@@ -12,6 +14,7 @@ dependencies = [
     "jupyter>=1.1.1",
     "matplotlib>=3.11.2",
     "networkx>=3.7",
+    "plotly>=7.1.0",
     "qiskit>=2.5.2",
     "qiskit-aer>=0.17.2",
     "qiskit-ibm-runtime>=0.50.0",

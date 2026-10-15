@@ -182,7 +182,10 @@ def main() -> None:
     parser.add_argument("--optimization", choices=tuple(level.name.lower() for level in OptimizationLevel), default=OptimizationLevel.MAXIMUM.name.lower(), help="Shared native optimization preset (default: maximum, Qiskit level 3)")
     parser.add_argument("--mc-training-shots", type=int, default=3072,
                         help="Noisy training shots per candidate for simulation-assisted C (default: 3072)")
-    parser.add_argument("--report", type=Path, help="Save configuration, snapshot identity, counts, metrics, and executed QASM circuits as JSON")
+    parser.add_argument("--no-report", action="store_true",
+                        help="Disable automatic HTML visual report generation")
+    parser.add_argument("--report", type=Path,
+                        help="Save configuration, snapshot identity, counts, metrics, and executed QASM circuits as JSON")
     args = parser.parse_args()
     if args.shots < 3:
         parser.error("--shots must be at least 3")
@@ -303,19 +306,36 @@ def main() -> None:
                     print(measured.draw(output="text", fold=100, idle_wires=False))
             measured_result = noisy if noisy is not None else result
             zz_circuit = measured_result.circuits["ZZ"]
+            active_qubits = len({
+                zz_circuit.find_bit(q).index
+                for item in zz_circuit.data
+                if item.operation.name != "barrier"
+                for q in item.qubits
+            })
             summary_rows.append({
-                "processor": name, "algorithm": algorithm,
+                "processor": name,
+                "algorithm": algorithm,
+                "num_qubits": built.processor.num_qubits,
+                "output_ports": built.processor.output_ports,
+                "active_qubits": active_qubits,
                 "noiseless_fidelity": result.fidelity,
+                "noiseless_interval": result.fidelity_interval,
                 "noisy_fidelity": noisy.fidelity if noisy is not None else None,
+                "noisy_interval": noisy.fidelity_interval if noisy is not None else None,
                 "fidelity": measured_result.fidelity,
+                "fidelity_interval": measured_result.fidelity_interval,
                 "swaps": int(built.circuit.count_ops().get("swap", 0)),
                 "native_two_qubit_gates": sum(
                     len(item.qubits) == 2 and item.operation.name != "barrier"
                     for item in zz_circuit.data
                 ),
                 "depth": zz_circuit.depth(),
+                "gate_counts": dict(zz_circuit.count_ops()),
                 "accepted": sum(measured_result.accepted_by_basis.values()),
                 "attempted": sum(measured_result.shots_by_basis.values()),
+                "unconditional_fidelity": getattr(measured_result, "unconditional_fidelity", None),
+                "syndrome_sites": getattr(measured_result, "syndrome_sites", ()),
+                "protection": built.routing.protection if built.routing else None,
             })
             if args.report:
                 records.append({
@@ -335,8 +355,24 @@ def main() -> None:
                     "noiseless": _result_record(result), "noisy": _result_record(noisy) if noisy else None,
                 })
     if args.report:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
         args.report.write_text(json.dumps({"schema_version": 4, "runs": records}, indent=2) + "\n")
-        print(f"Saved report: {args.report}")
+        print(f"Saved JSON report: {args.report}")
     _print_final_summary(summary_rows, noise=args.noise)
+    if not args.no_report and summary_rows:
+        from .report import generate_html_report
+        html_path = Path("results/visual_summary.html")
+        generate_html_report(
+            summary_rows,
+            output_path=html_path,
+            metadata={
+                "shots": args.shots,
+                "seed": args.seed,
+                "backend_seed": args.backend_seed,
+                "noise": args.noise,
+                "optimization": args.optimization,
+            },
+        )
+        print(f"\nVisual report generated: {html_path}")
     if failed:
         raise SystemExit(1)
